@@ -1,1 +1,13 @@
-databaseChangeLog: []
+databaseChangeLog:
+  - include:
+      file: db/changelog/migrations/001-security.sql
+  - include:
+      file: db/changelog/migrations/002-hotel.sql
+  - include:
+      file: db/changelog/migrations/003-guests-bookings.sql
+  - include:
+      file: db/changelog/migrations/004-folio-payments.sql
+  - include:
+      file: db/changelog/migrations/005-services.sql
+  - include:
+      file: db/changelog/migrations/006-inventory-cash-admin.sql
