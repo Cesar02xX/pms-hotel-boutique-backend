@@ -14,6 +14,4 @@ public interface RoomTypeFeatureRepository extends JpaRepository<RoomTypeFeature
 	List<RoomTypeFeature> findByIdRoomTypeId(UUID roomTypeId);
 
 	List<RoomTypeFeature> findByIdRoomTypeIdIn(Collection<UUID> roomTypeIds);
-
-	void deleteByIdRoomTypeId(UUID roomTypeId);
 }
