@@ -3,6 +3,7 @@ package com.aurora.pms.security;
 import com.aurora.pms.config.JwtProperties;
 import com.aurora.pms.model.RefreshToken;
 import com.aurora.pms.model.User;
+import com.aurora.pms.model.enums.UserStatus;
 import com.aurora.pms.repository.RefreshTokenRepository;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -32,8 +33,65 @@ public class RefreshTokenService {
 
 	@Transactional
 	public String createRefreshToken(User user) {
-		String plaintextToken = generatePlaintextToken();
+		return createRefreshToken(user, OffsetDateTime.now(ZoneOffset.UTC));
+	}
+
+	@Transactional
+	public RefreshTokenRotation rotate(String plaintextToken) {
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+		RefreshToken refreshToken = findValidTokenForUpdate(plaintextToken, now);
+		User user = refreshToken.getUser();
+
+		revoke(refreshToken, now);
+		String rotatedPlaintextToken = createRefreshToken(user, now);
+
+		return new RefreshTokenRotation(user, rotatedPlaintextToken);
+	}
+
+	@Transactional
+	public void revoke(String plaintextToken) {
+		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+		RefreshToken refreshToken = findValidTokenForUpdate(plaintextToken, now);
+		revoke(refreshToken, now);
+	}
+
+	public String hashToken(String token) {
+		try {
+			byte[] digest = MessageDigest.getInstance("SHA-256")
+					.digest(token.getBytes(StandardCharsets.UTF_8));
+			return HexFormat.of().formatHex(digest);
+		} catch (NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 algorithm is not available", exception);
+		}
+	}
+
+	private RefreshToken findValidTokenForUpdate(String plaintextToken, OffsetDateTime now) {
+		String tokenHash = hashToken(plaintextToken);
+		RefreshToken refreshToken = refreshTokenRepository.findForUpdateByTokenHash(tokenHash)
+				.orElseThrow(InvalidRefreshTokenException::new);
+
+		validate(refreshToken, now);
+
+		return refreshToken;
+	}
+
+	private void validate(RefreshToken refreshToken, OffsetDateTime now) {
+		User user = refreshToken.getUser();
+		if (refreshToken.getRevokedAt() != null
+				|| !refreshToken.getExpiresAt().isAfter(now)
+				|| user == null
+				|| user.getStatus() != UserStatus.active) {
+			throw new InvalidRefreshTokenException();
+		}
+	}
+
+	private void revoke(RefreshToken refreshToken, OffsetDateTime now) {
+		refreshToken.setRevokedAt(now);
+		refreshTokenRepository.save(refreshToken);
+	}
+
+	private String createRefreshToken(User user, OffsetDateTime now) {
+		String plaintextToken = generatePlaintextToken();
 
 		RefreshToken refreshToken = new RefreshToken();
 		refreshToken.setUser(user);
@@ -45,16 +103,6 @@ public class RefreshTokenService {
 		refreshTokenRepository.save(refreshToken);
 
 		return plaintextToken;
-	}
-
-	public String hashToken(String token) {
-		try {
-			byte[] digest = MessageDigest.getInstance("SHA-256")
-					.digest(token.getBytes(StandardCharsets.UTF_8));
-			return HexFormat.of().formatHex(digest);
-		} catch (NoSuchAlgorithmException exception) {
-			throw new IllegalStateException("SHA-256 algorithm is not available", exception);
-		}
 	}
 
 	private String generatePlaintextToken() {

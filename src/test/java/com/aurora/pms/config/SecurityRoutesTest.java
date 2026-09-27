@@ -48,4 +48,36 @@ class SecurityRoutesTest {
 						.content("{}"))
 				.andExpect(status().isBadRequest());
 	}
+
+	@Test
+	void refreshEndpointIsPublicAndValidatedByController() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/refresh")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void refreshEndpointRejectsUnknownRefreshTokenWithUnauthorized() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/refresh")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"refreshToken\":\"unknown-refresh-token\"}"))
+				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void logoutEndpointIsPublicAndValidatedByController() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void logoutEndpointRejectsUnknownRefreshTokenWithUnauthorized() throws Exception {
+		mockMvc.perform(post("/api/v1/auth/logout")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"refreshToken\":\"unknown-refresh-token\"}"))
+				.andExpect(status().isUnauthorized());
+	}
 }

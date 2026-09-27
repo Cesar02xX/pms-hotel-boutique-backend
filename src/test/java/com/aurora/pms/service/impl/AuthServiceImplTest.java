@@ -8,10 +8,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.aurora.pms.dto.request.LoginRequest;
+import com.aurora.pms.dto.request.RefreshTokenRequest;
 import com.aurora.pms.dto.response.AuthResponse;
 import com.aurora.pms.model.User;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.CustomUserDetailsService;
 import com.aurora.pms.security.JwtService;
+import com.aurora.pms.security.RefreshTokenRotation;
 import com.aurora.pms.security.RefreshTokenService;
 import java.util.List;
 import java.util.Optional;
@@ -34,6 +37,9 @@ class AuthServiceImplTest {
 
 	@Mock
 	private UserRepository userRepository;
+
+	@Mock
+	private CustomUserDetailsService customUserDetailsService;
 
 	@Mock
 	private JwtService jwtService;
@@ -93,8 +99,43 @@ class AuthServiceImplTest {
 		verify(refreshTokenService, never()).createRefreshToken(any());
 	}
 
+	@Test
+	void validRefreshGeneratesAccessTokenFromCurrentUserDetailsAndRotatedRefreshToken() {
+		AuthServiceImpl authService = authService();
+		User user = new User();
+		user.setEmail("admin@aurora.test");
+		UserDetails userDetails = userDetails(user.getEmail());
+
+		when(refreshTokenService.rotate("refresh-a")).thenReturn(new RefreshTokenRotation(user, "refresh-b"));
+		when(customUserDetailsService.loadUserByUsername(user.getEmail())).thenReturn(userDetails);
+		when(jwtService.generateAccessToken(userDetails)).thenReturn("access-2.jwt");
+		when(jwtService.getAccessExpirationSeconds()).thenReturn(1800L);
+
+		AuthResponse response = authService.refresh(new RefreshTokenRequest("refresh-a"));
+
+		assertThat(response.accessToken()).isEqualTo("access-2.jwt");
+		assertThat(response.refreshToken()).isEqualTo("refresh-b");
+		assertThat(response.tokenType()).isEqualTo("Bearer");
+		assertThat(response.expiresIn()).isEqualTo(1800L);
+	}
+
+	@Test
+	void logoutDelegatesRefreshTokenRevocation() {
+		AuthServiceImpl authService = authService();
+
+		authService.logout(new RefreshTokenRequest("refresh-b"));
+
+		verify(refreshTokenService).revoke("refresh-b");
+	}
+
 	private AuthServiceImpl authService() {
-		return new AuthServiceImpl(authenticationManager, userRepository, jwtService, refreshTokenService);
+		return new AuthServiceImpl(
+				authenticationManager,
+				userRepository,
+				customUserDetailsService,
+				jwtService,
+				refreshTokenService
+		);
 	}
 
 	private UserDetails userDetails(String email) {
