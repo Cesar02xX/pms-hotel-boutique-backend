@@ -7,11 +7,13 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -30,6 +32,23 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return buildResponse(HttpStatus.BAD_REQUEST, exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodArgumentTypeMismatch(
+            MethodArgumentTypeMismatchException exception,
+            HttpServletRequest request
+    ) {
+        String message = "Invalid value for parameter '" + exception.getName() + "'";
+        return buildResponse(HttpStatus.BAD_REQUEST, message, request.getRequestURI());
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.BAD_REQUEST, "Malformed or invalid request body", request.getRequestURI());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
