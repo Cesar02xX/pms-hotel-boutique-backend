@@ -9,7 +9,8 @@ El modelo contempla 27 tablas relacionales para seguridad, hotel, huespedes, res
 ## 2. Convenciones
 
 - Nombres de tablas y columnas en `snake_case`.
-- Claves primarias y foraneas propuestas como `VARCHAR`, alineadas con los IDs opacos actuales del contrato.
+- Claves primarias y foraneas internas documentadas como `UUID`.
+- Codigos funcionales y de negocio documentados como `VARCHAR` con `UNIQUE` cuando corresponda.
 - Campos obligatorios marcados como `NOT NULL`.
 - Campos monetarios en unidades menores enteras con sufijo `_cents`.
 - Moneda actual: `GTQ`.
@@ -18,17 +19,24 @@ El modelo contempla 27 tablas relacionales para seguridad, hotel, huespedes, res
 
 ## 3. Estrategia de identificadores
 
-El contrato actual del frontend usa identificadores string opacos, por ejemplo `GST-001`, `BKG-001`, `RM-101` y `RATE-001`. Para no tomar una decision tecnica fuera del alcance del issue, las PK y FK se documentan como `VARCHAR`.
+La estrategia definitiva del proyecto es usar `UUID` como identificador tecnico interno para las claves primarias y foraneas del modelo relacional. PostgreSQL utilizara su tipo nativo `UUID` y las entidades JPA usaran `UUID` cuando se implementen en un ticket posterior.
 
-### Decision pendiente: estrategia definitiva de identificadores
+Los identificadores simulados actuales del frontend, por ejemplo `GST-001`, `BKG-001`, `RM-101` y `RATE-001`, pertenecen a la base mock y no se convierten automaticamente en PK reales de PostgreSQL.
 
-Antes de crear migraciones se debera decidir entre:
+Los codigos con significado funcional para el hotel permanecen separados de las PK y se documentan como `VARCHAR` con `UNIQUE` cuando corresponda. Ejemplos:
 
-- Conservar identificadores string publicos como PK.
-- Migrar a `UUID`.
-- Usar identificador interno tecnico y codigo publico separado.
+- `bookings.confirmation_code`
+- `bookings.guest_link_code`
+- `rooms.room_number`
+- `room_types.code`
+- `products.sku`
+- `inventory_items.sku`
+- `promotions.code`
+- `permissions.key`
+- `roles.code`
+- `users.email`
 
-Este ticket no resuelve esa decision; solo preserva el contrato actual para que el diseno sea trazable.
+La forma exacta de generacion de UUID queda fuera del alcance de este documento y se definira al crear migraciones Liquibase y entidades JPA.
 
 ## 4. Dinero
 
@@ -112,7 +120,7 @@ Los campos `opens_at` y `closes_at` de `amenities` representan hora del dia y se
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador del huesped. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador del huesped. |
 | `first_name` | `VARCHAR` | No |  | `NOT NULL` | Nombres. |
 | `last_name` | `VARCHAR` | No |  | `NOT NULL` | Apellidos. |
 | `email` | `VARCHAR` | Si |  |  | Correo de contacto. |
@@ -128,7 +136,7 @@ Los campos `opens_at` y `closes_at` de `amenities` representan hora del dia y se
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador del tipo de habitacion. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador del tipo de habitacion. |
 | `code` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Codigo funcional. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre comercial. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
@@ -144,7 +152,7 @@ No se guarda `room_feature_ids`; la relacion se modela con `room_type_features`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de caracteristica. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de caracteristica. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
@@ -154,8 +162,8 @@ No se guarda `room_feature_ids`; la relacion se modela con `room_type_features`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `room_type_id` | `VARCHAR` | No | PK, FK | `NOT NULL`, FK a `room_types.id` | Tipo de habitacion. |
-| `room_feature_id` | `VARCHAR` | No | PK, FK | `NOT NULL`, FK a `room_features.id` | Caracteristica asociada. |
+| `room_type_id` | `UUID` | No | PK, FK | `NOT NULL`, FK a `room_types.id` | Tipo de habitacion. |
+| `room_feature_id` | `UUID` | No | PK, FK | `NOT NULL`, FK a `room_features.id` | Caracteristica asociada. |
 
 PK compuesta: (`room_type_id`, `room_feature_id`).
 
@@ -163,9 +171,9 @@ PK compuesta: (`room_type_id`, `room_feature_id`).
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de habitacion. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de habitacion. |
 | `room_number` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Numero visible de habitacion. |
-| `room_type_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `room_types.id` | Tipo de habitacion. |
+| `room_type_id` | `UUID` | No | FK | `NOT NULL`, FK a `room_types.id` | Tipo de habitacion. |
 | `floor` | `INTEGER` | Si |  |  | Piso. |
 | `status` | `VARCHAR` | No |  | `available`, `occupied`, `maintenance`, `out_of_service` | Estado operativo. |
 | `housekeeping_status` | `VARCHAR` | No |  | `dirty`, `cleaning`, `clean`, `inspected` | Estado de limpieza. |
@@ -179,8 +187,8 @@ No existe columna `is_assignable`; es un valor derivado: `status = available` y 
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de tarifa. |
-| `room_type_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `room_types.id` | Tipo de habitacion al que aplica. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de tarifa. |
+| `room_type_id` | `UUID` | No | FK | `NOT NULL`, FK a `room_types.id` | Tipo de habitacion al que aplica. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre de tarifa. |
 | `valid_from` | `DATE` | No |  | `NOT NULL` | Inicio de vigencia. |
 | `valid_to` | `DATE` | Si |  | `valid_to IS NULL OR valid_to >= valid_from` | Fin de vigencia; `NULL` significa sin fecha de finalizacion definida. |
@@ -196,13 +204,13 @@ No existe columna `is_assignable`; es un valor derivado: `status = available` y 
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de reserva. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de reserva. |
 | `confirmation_code` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Codigo de confirmacion. |
 | `guest_link_code` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Codigo para portal de huesped. |
-| `guest_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped titular. |
-| `room_id` | `VARCHAR` | Si | FK | FK a `rooms.id` | Habitacion asignada; puede ser nula al reservar. |
-| `room_type_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `room_types.id` | Tipo reservado. |
-| `rate_id` | `VARCHAR` | Si | FK | FK a `rates.id` | Tarifa aplicada si existe. |
+| `guest_id` | `UUID` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped titular. |
+| `room_id` | `UUID` | Si | FK | FK a `rooms.id` | Habitacion asignada; puede ser nula al reservar. |
+| `room_type_id` | `UUID` | No | FK | `NOT NULL`, FK a `room_types.id` | Tipo reservado. |
+| `rate_id` | `UUID` | Si | FK | FK a `rates.id` | Tarifa aplicada si existe. |
 | `check_in` | `DATE` | No |  | `NOT NULL` | Fecha civil de entrada. |
 | `check_out` | `DATE` | No |  | `NOT NULL`, `check_out > check_in` | Fecha civil de salida. |
 | `status` | `VARCHAR` | No |  | `pending`, `confirmed`, `checked_in`, `checked_out`, `cancelled`, `no_show` | Estado de reserva. |
@@ -220,8 +228,8 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador del acompanante. |
-| `booking_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador del acompanante. |
+| `booking_id` | `UUID` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
 | `first_name` | `VARCHAR` | No |  | `NOT NULL` | Nombres. |
 | `last_name` | `VARCHAR` | No |  | `NOT NULL` | Apellidos. |
 | `document_type` | `VARCHAR` | Si |  | `passport`, `national_id`, `driver_license` | Tipo de documento. |
@@ -234,9 +242,9 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de folio. |
-| `booking_id` | `VARCHAR` | No | FK, UK | `NOT NULL`, `UNIQUE`, FK a `bookings.id` | Reserva asociada; materializa relacion 1:1. |
-| `guest_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped titular. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de folio. |
+| `booking_id` | `UUID` | No | FK, UK | `NOT NULL`, `UNIQUE`, FK a `bookings.id` | Reserva asociada; materializa relacion 1:0..1 desde reserva hacia folio. |
+| `guest_id` | `UUID` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped titular. |
 | `status` | `VARCHAR` | No |  | `open`, `closed` | Estado del folio. |
 | `balance_cents` | `BIGINT` | No |  | `NOT NULL` | Saldo en centavos. |
 | `currency` | `CHAR(3)` | No |  | `NOT NULL`, actual `GTQ` | Moneda. |
@@ -249,9 +257,9 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de cargo. |
-| `booking_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
-| `product_id` | `VARCHAR` | Si | FK | FK a `products.id` | Producto si el cargo viene de consumo. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de cargo. |
+| `booking_id` | `UUID` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
+| `product_id` | `UUID` | Si | FK | FK a `products.id` | Producto si el cargo viene de consumo. |
 | `description` | `TEXT` | No |  | `NOT NULL` | Descripcion del cargo. |
 | `quantity` | `INTEGER` | No |  | `NOT NULL`, `quantity > 0` | Cantidad. |
 | `unit_price_cents` | `BIGINT` | No |  | `NOT NULL`, `unit_price_cents >= 0` | Precio unitario en centavos. |
@@ -260,7 +268,7 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 | `category` | `VARCHAR` | No |  | `stay`, `consumption` | Categoria. |
 | `status` | `VARCHAR` | No |  | `pending`, `posted`, `voided` | Estado. |
 | `charged_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento del cargo. |
-| `created_by_user_id` | `VARCHAR` | Si | FK | FK a `users.id` | Usuario que crea el cargo. |
+| `created_by_user_id` | `UUID` | Si | FK | FK a `users.id` | Usuario que crea el cargo. |
 | `void_reason` | `TEXT` | Si |  |  | Motivo de anulacion. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 
@@ -268,24 +276,24 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de pago. |
-| `booking_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
-| `amount_cents` | `BIGINT` | No |  | `NOT NULL`, `amount_cents >= 0` | Monto pagado en centavos. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de pago. |
+| `booking_id` | `UUID` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
+| `amount_cents` | `BIGINT` | No |  | `NOT NULL`, `amount_cents > 0` | Monto pagado en centavos. |
 | `currency` | `CHAR(3)` | No |  | `NOT NULL`, actual `GTQ` | Moneda. |
 | `method` | `VARCHAR` | No |  | `cash`, `credit_card`, `debit_card`, `bank_transfer`, `online` | Metodo. |
 | `status` | `VARCHAR` | No |  | `pending`, `completed`, `failed`, `refunded` | Estado. |
 | `transaction_reference` | `VARCHAR` | Si |  |  | Referencia externa. |
 | `paid_at` | `TIMESTAMPTZ` | Si |  |  | Momento de pago. |
-| `processed_by_user_id` | `VARCHAR` | Si | FK | FK a `users.id` | Usuario que procesa. |
+| `processed_by_user_id` | `UUID` | Si | FK | FK a `users.id` | Usuario que procesa. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 
 ### `deposits`
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de deposito. |
-| `booking_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
-| `guest_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped que entrega el deposito. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de deposito. |
+| `booking_id` | `UUID` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
+| `guest_id` | `UUID` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped que entrega el deposito. |
 | `amount_cents` | `BIGINT` | No |  | `NOT NULL`, `amount_cents >= 0` | Monto en centavos. |
 | `currency` | `CHAR(3)` | No |  | `NOT NULL`, actual `GTQ` | Moneda. |
 | `method` | `VARCHAR` | No |  | `cash`, `credit_card`, `debit_card`, `bank_transfer` | Metodo. |
@@ -300,7 +308,7 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de producto. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de producto. |
 | `sku` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | SKU. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
@@ -317,14 +325,14 @@ Regla de negocio: `adults + children <= room_types.capacity`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de pedido. |
-| `booking_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
-| `room_id` | `VARCHAR` | Si | FK | FK a `rooms.id` | Habitacion desde la que se solicita. |
-| `guest_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped solicitante. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de pedido. |
+| `booking_id` | `UUID` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
+| `room_id` | `UUID` | Si | FK | FK a `rooms.id` | Habitacion desde la que se solicita. |
+| `guest_id` | `UUID` | Si | FK | FK a `guests.id` | Huesped solicitante si esta identificado en el pedido. |
 | `status` | `VARCHAR` | No |  | `pending`, `accepted`, `preparing`, `ready`, `on_the_way`, `delivered`, `rejected`, `cancelled` | Estado. |
 | `notes` | `TEXT` | Si |  |  | Notas. |
 | `currency` | `CHAR(3)` | No |  | `NOT NULL`, actual `GTQ` | Moneda. |
-| `charge_id` | `VARCHAR` | Si | FK | FK a `charges.id` | Cargo generado al entregar si aplica. |
+| `charge_id` | `UUID` | Si | FK | FK a `charges.id` | Cargo generado al entregar si aplica. |
 | `requested_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento de solicitud. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 | `updated_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de actualizacion. |
@@ -335,9 +343,9 @@ Los items del pedido no se guardan como JSON; se modelan en `order_items`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | PK propia de la linea de pedido. |
-| `order_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `orders.id` | Pedido. |
-| `product_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `products.id` | Producto solicitado. |
+| `id` | `UUID` | No | PK | `NOT NULL` | PK propia de la linea de pedido. |
+| `order_id` | `UUID` | No | FK | `NOT NULL`, FK a `orders.id` | Pedido. |
+| `product_id` | `UUID` | No | FK | `NOT NULL`, FK a `products.id` | Producto solicitado. |
 | `quantity` | `INTEGER` | No |  | `NOT NULL`, `quantity > 0` | Cantidad. |
 | `unit_price_cents` | `BIGINT` | No |  | `NOT NULL`, `unit_price_cents >= 0` | Precio del producto al momento del pedido. |
 
@@ -347,15 +355,15 @@ Decision documentada: `order_items` usa PK propia `id` para mantener consistenci
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de solicitud. |
-| `booking_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
-| `room_id` | `VARCHAR` | Si | FK | FK a `rooms.id` | Habitacion relacionada. |
-| `guest_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `guests.id` | Huesped solicitante. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de solicitud. |
+| `booking_id` | `UUID` | No | FK | `NOT NULL`, FK a `bookings.id` | Reserva asociada. |
+| `room_id` | `UUID` | Si | FK | FK a `rooms.id` | Habitacion relacionada. |
+| `guest_id` | `UUID` | Si | FK | FK a `guests.id` | Huesped solicitante si esta identificado en la solicitud. |
 | `type` | `VARCHAR` | No |  | `housekeeping`, `concierge`, `maintenance`, `other` | Tipo. |
 | `description` | `TEXT` | No |  | `NOT NULL` | Descripcion. |
 | `status` | `VARCHAR` | No |  | `pending`, `accepted`, `in_progress`, `completed`, `rejected` | Estado. |
 | `notes` | `TEXT` | Si |  |  | Notas internas. |
-| `charge_id` | `VARCHAR` | Si | FK | FK a `charges.id` | Cargo asociado si aplica. |
+| `charge_id` | `UUID` | Si | FK | FK a `charges.id` | Cargo asociado si aplica. |
 | `requested_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento de solicitud. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 | `updated_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de actualizacion. |
@@ -364,7 +372,7 @@ Decision documentada: `order_items` usa PK propia `id` para mantener consistenci
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de item de inventario. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de item de inventario. |
 | `sku` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | SKU de inventario. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
@@ -372,7 +380,7 @@ Decision documentada: `order_items` usa PK propia `id` para mantener consistenci
 | `unit` | `VARCHAR` | No |  | `NOT NULL` | Unidad de medida. |
 | `current_quantity` | `INTEGER` | No |  | `NOT NULL`, `current_quantity >= 0` | Cantidad actual. |
 | `minimum_quantity` | `INTEGER` | No |  | `NOT NULL`, `minimum_quantity >= 0` | Cantidad minima. |
-| `product_id` | `VARCHAR` | Si | FK | FK a `products.id` | Producto comercial relacionado si existe. |
+| `product_id` | `UUID` | Si | FK | FK a `products.id` | Producto comercial relacionado si existe. |
 | `active` | `BOOLEAN` | No |  | `NOT NULL` | Indica si se controla. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 | `updated_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de actualizacion. |
@@ -383,12 +391,12 @@ Decision documentada: `order_items` usa PK propia `id` para mantener consistenci
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de movimiento. |
-| `inventory_item_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `inventory_items.id` | Item afectado. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de movimiento. |
+| `inventory_item_id` | `UUID` | No | FK | `NOT NULL`, FK a `inventory_items.id` | Item afectado. |
 | `type` | `VARCHAR` | No |  | `in`, `out` | Tipo de movimiento. |
 | `reason` | `VARCHAR` | No |  | `purchase`, `restock`, `consumption`, `sale`, `shrinkage` | Motivo. |
 | `quantity` | `INTEGER` | No |  | `NOT NULL`, `quantity > 0` | Cantidad movida. |
-| `responsible_user_id` | `VARCHAR` | Si | FK | FK a `users.id` | Usuario responsable. |
+| `responsible_user_id` | `UUID` | Si | FK | FK a `users.id` | Usuario responsable. |
 | `occurred_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento del movimiento. |
 | `notes` | `TEXT` | Si |  |  | Notas. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
@@ -397,13 +405,13 @@ Decision documentada: `order_items` usa PK propia `id` para mantener consistenci
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de sesion de caja. |
-| `opened_by_user_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `users.id` | Usuario que abre. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de sesion de caja. |
+| `opened_by_user_id` | `UUID` | No | FK | `NOT NULL`, FK a `users.id` | Usuario que abre. |
 | `opened_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento de apertura. |
 | `opening_balance_cents` | `BIGINT` | No |  | `NOT NULL` | Saldo inicial en centavos. |
 | `currency` | `CHAR(3)` | No |  | `NOT NULL`, actual `GTQ` | Moneda. |
 | `status` | `VARCHAR` | No |  | `open`, `closed` | Estado. |
-| `closed_by_user_id` | `VARCHAR` | Si | FK | FK a `users.id` | Usuario que cierra. |
+| `closed_by_user_id` | `UUID` | Si | FK | FK a `users.id` | Usuario que cierra. |
 | `closed_at` | `TIMESTAMPTZ` | Si |  |  | Momento de cierre. |
 | `expected_balance_cents` | `BIGINT` | Si |  |  | Saldo esperado al cierre. |
 | `counted_balance_cents` | `BIGINT` | Si |  |  | Saldo contado. |
@@ -418,22 +426,22 @@ Los campos de cierre pueden ser `NULL` mientras la caja este abierta.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de movimiento de caja. |
-| `cash_session_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `cash_sessions.id` | Sesion de caja. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de movimiento de caja. |
+| `cash_session_id` | `UUID` | No | FK | `NOT NULL`, FK a `cash_sessions.id` | Sesion de caja. |
 | `type` | `VARCHAR` | No |  | `income`, `expense` | Tipo. |
 | `concept` | `VARCHAR` | No |  | `NOT NULL` | Concepto. |
 | `amount_cents` | `BIGINT` | No |  | `NOT NULL`, `amount_cents >= 0` | Monto en centavos. |
 | `currency` | `CHAR(3)` | No |  | `NOT NULL`, actual `GTQ` | Moneda. |
-| `responsible_user_id` | `VARCHAR` | Si | FK | FK a `users.id` | Usuario responsable. |
+| `responsible_user_id` | `UUID` | Si | FK | FK a `users.id` | Usuario responsable. |
 | `occurred_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento del movimiento. |
-| `payment_id` | `VARCHAR` | Si | FK | FK a `payments.id` | Pago asociado si aplica. |
+| `payment_id` | `UUID` | Si | FK | FK a `payments.id` | Pago asociado si aplica. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 
 ### `promotions`
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de promocion. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de promocion. |
 | `code` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Codigo promocional. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
@@ -448,7 +456,7 @@ Los campos de cierre pueden ser `NULL` mientras la caja este abierta.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de amenidad. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de amenidad. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
 | `category` | `VARCHAR` | No |  | `room`, `hotel`, `service` | Categoria. |
@@ -463,12 +471,12 @@ Los campos de cierre pueden ser `NULL` mientras la caja este abierta.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de auditoria. |
-| `user_id` | `VARCHAR` | Si | FK | FK a `users.id` | Usuario que ejecuta la accion. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de auditoria. |
+| `user_id` | `UUID` | Si | FK | FK a `users.id` | Usuario que ejecuta la accion. |
 | `module` | `VARCHAR` | No |  | `NOT NULL` | Modulo afectado. |
 | `action` | `VARCHAR` | No |  | `NOT NULL` | Accion. |
 | `entity_type` | `VARCHAR` | No |  | `NOT NULL` | Tipo de entidad afectada. |
-| `entity_id` | `VARCHAR` | No |  | `NOT NULL` | ID de entidad afectada. |
+| `entity_id` | `UUID` | No |  | `NOT NULL` | ID de entidad afectada. |
 | `occurred_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Momento del evento. |
 | `details` | `JSONB` | Si |  |  | Detalles adicionales de auditoria. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de registro. |
@@ -479,7 +487,7 @@ No se crea FK dinamica para `entity_id` porque puede referirse a distintos tipos
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de permiso. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de permiso. |
 | `key` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Clave funcional. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `description` | `TEXT` | Si |  |  | Descripcion. |
@@ -490,7 +498,7 @@ No se crea FK dinamica para `entity_id` porque puede referirse a distintos tipos
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de rol. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de rol. |
 | `code` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Codigo funcional. |
 | `name` | `VARCHAR` | No |  | `NOT NULL` | Nombre. |
 | `active` | `BOOLEAN` | No |  | `NOT NULL` | Indica si el rol esta activo. |
@@ -505,8 +513,8 @@ No se guarda `permission_ids`; la relacion se modela con `role_permissions`.
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `role_id` | `VARCHAR` | No | PK, FK | `NOT NULL`, FK a `roles.id` | Rol. |
-| `permission_id` | `VARCHAR` | No | PK, FK | `NOT NULL`, FK a `permissions.id` | Permiso. |
+| `role_id` | `UUID` | No | PK, FK | `NOT NULL`, FK a `roles.id` | Rol. |
+| `permission_id` | `UUID` | No | PK, FK | `NOT NULL`, FK a `permissions.id` | Permiso. |
 
 PK compuesta: (`role_id`, `permission_id`).
 
@@ -514,12 +522,12 @@ PK compuesta: (`role_id`, `permission_id`).
 
 | Columna | Tipo PostgreSQL | Nulo | Clave | Restricciones | Descripcion |
 |---------|-----------------|------|-------|---------------|-------------|
-| `id` | `VARCHAR` | No | PK | `NOT NULL` | Identificador de usuario. |
+| `id` | `UUID` | No | PK | `NOT NULL` | Identificador de usuario. |
 | `first_name` | `VARCHAR` | No |  | `NOT NULL` | Nombres. |
 | `last_name` | `VARCHAR` | No |  | `NOT NULL` | Apellidos. |
 | `email` | `VARCHAR` | No | UK | `NOT NULL`, `UNIQUE` | Correo de inicio de sesion. |
 | `password_hash` | `VARCHAR` | No |  | `NOT NULL` | Hash para autenticacion real futura. |
-| `role_id` | `VARCHAR` | No | FK | `NOT NULL`, FK a `roles.id` | Rol asignado. |
+| `role_id` | `UUID` | No | FK | `NOT NULL`, FK a `roles.id` | Rol asignado. |
 | `status` | `VARCHAR` | No |  | `active`, `inactive` | Estado del usuario. |
 | `created_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de creacion. |
 | `updated_at` | `TIMESTAMPTZ` | No |  | `NOT NULL` | Fecha de actualizacion. |
@@ -528,9 +536,9 @@ No se copian contrasenas mock del frontend.
 
 ## 8. Relaciones
 
-### 1:1
+### 1:0..1
 
-- `bookings` 1:1 `guest_accounts`, implementada con `guest_accounts.booking_id UNIQUE`.
+- `bookings` 1:0..1 `guest_accounts`, implementada con `guest_accounts.booking_id UNIQUE`. Una reserva puede existir antes de abrir su folio.
 
 ### 1:N
 
@@ -567,8 +575,10 @@ No se copian contrasenas mock del frontend.
 - `cash_movements.responsible_user_id` -> `users.id`.
 - `cash_movements.payment_id` -> `payments.id`.
 - `orders.room_id` -> `rooms.id`.
+- `orders.guest_id` -> `guests.id`.
 - `orders.charge_id` -> `charges.id`.
 - `service_requests.room_id` -> `rooms.id`.
+- `service_requests.guest_id` -> `guests.id`.
 - `service_requests.charge_id` -> `charges.id`.
 - `audit_logs.user_id` -> `users.id`.
 
@@ -604,7 +614,7 @@ No se copian contrasenas mock del frontend.
 - FK hacia tablas existentes.
 - `UNIQUE` en `room_types.code`, `rooms.room_number`, `bookings.confirmation_code`, `bookings.guest_link_code`, `guest_accounts.booking_id`, `products.sku`, `inventory_items.sku`, `promotions.code`, `permissions.key`, `roles.code` y `users.email`.
 - PK compuestas en `room_type_features` y `role_permissions`.
-- Valores no negativos para montos `_cents`.
+- Valores no negativos para montos `_cents`, excepto pagos que requieren `payments.amount_cents > 0`.
 - Valores positivos para cantidades y noches minimas.
 - `check_out > check_in`.
 - Rangos de vigencia abiertos o validos: `valid_to IS NULL OR valid_to >= valid_from`.
@@ -635,23 +645,22 @@ No se intenta resolver toda la logica con `CHECK` constraints complejos.
 - `orders.charge_id` y `service_requests.charge_id` vinculan servicios facturables con el folio.
 - El stock comercial de `products` y el inventario operativo de `inventory_items` pueden relacionarse, pero no son la misma entidad.
 - Los movimientos de caja asociados a pagos usan `cash_movements.payment_id`.
-- Auditoria registra el actor con `user_id` y la entidad afectada con `entity_type` + `entity_id`, sin FK dinamica.
+- Auditoria registra el actor con `user_id` y la entidad afectada con `entity_type` + `entity_id`, sin FK dinamica. `entity_id` guarda el UUID interno de la entidad auditada.
 
 ## 12. Decisiones de diseno
 
-- Mantener PK/FK como `VARCHAR` por compatibilidad documental con el contrato actual.
+- Usar `UUID` para PK/FK internas y mantener codigos de negocio como `VARCHAR`.
 - Modelar relaciones N:M con tablas puente: `room_type_features` y `role_permissions`.
 - Modelar items de pedidos en `order_items` y no como JSON.
 - Usar `BIGINT` para dinero en centavos y sufijo `_cents`.
 - Usar `DATE` para fechas civiles y `TIMESTAMPTZ` para instantes.
 - No persistir valores derivados como `rooms.is_assignable`.
 - No persistir arrays del frontend como `room_feature_ids` o `permission_ids`.
-- Usar `guest_accounts.booking_id UNIQUE` para representar la relacion 1:1 con `bookings`.
+- Usar `guest_accounts.booking_id UNIQUE` para representar la relacion 1:0..1 con `bookings`.
 - Usar `order_items.id` como PK propia para facilitar referencias futuras a lineas de pedido.
 
 ## 13. Decisiones pendientes
 
-- Estrategia definitiva de identificadores: string opaco, `UUID` o ID interno mas codigo publico.
 - Forma final de implementar estados: `CHECK`, enums de PostgreSQL, tablas catalogo o validacion de servicio.
 - Politicas de borrado/retencion: `RESTRICT`, `CASCADE`, borrado logico o archivado.
 - Indices adicionales por consultas reales: busquedas por fechas, estados, habitacion, huesped y codigos.
