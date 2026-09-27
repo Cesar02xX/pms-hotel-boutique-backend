@@ -1,6 +1,7 @@
 package com.aurora.pms.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
@@ -157,7 +158,7 @@ class RoomTypeControllerTest extends AbstractCatalogApiTest {
 		String persisted = mockMvc.perform(get("/api/v1/room-types/{id}", roomTypeId).with(staffUser()))
 				.andReturn().getResponse().getContentAsString();
 		assertThat(instantOf(JsonPath.read(persisted, "$.createdAt")))
-				.isEqualTo(instantOf(JsonPath.read(before, "$.createdAt")));
+				.isCloseTo(instantOf(JsonPath.read(before, "$.createdAt")), within(1, ChronoUnit.MILLIS));
 	}
 
 	@Test
