@@ -189,16 +189,20 @@ abstract class AbstractCatalogApiTest {
 		return guest;
 	}
 
+	protected Booking createBooking(Guest guest, RoomType roomType, Room room, Rate rate) {
+		return createBooking(guest, roomType, room, rate, 1, 0);
+	}
+
 	protected Booking createBooking(Guest guest, RoomType roomType, Room room, Rate rate, int adults, int children) {
 		Booking booking = new Booking();
 		booking.setConfirmationCode("BKG-" + uniqueSuffix());
 		booking.setGuestLinkCode("GL-" + uniqueSuffix());
 		booking.setGuest(guest);
-		booking.setRoom(room);
 		booking.setRoomType(roomType);
+		booking.setRoom(room);
 		booking.setRate(rate);
-		booking.setCheckIn(LocalDate.of(2026, 4, 10));
-		booking.setCheckOut(LocalDate.of(2026, 4, 12));
+		booking.setCheckIn(LocalDate.of(2026, 3, 10));
+		booking.setCheckOut(LocalDate.of(2026, 3, 12));
 		booking.setStatus(BookingStatus.confirmed);
 		booking.setAdults(adults);
 		booking.setChildren(children);
@@ -248,6 +252,12 @@ abstract class AbstractCatalogApiTest {
 	protected UUID trackCreatedGuest(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		guestIds.add(id);
+		return id;
+	}
+
+	protected UUID trackCreatedBooking(MvcResult result) throws Exception {
+		UUID id = extractId(result);
+		bookingIds.add(id);
 		return id;
 	}
 
