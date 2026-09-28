@@ -21,6 +21,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
@@ -111,10 +112,11 @@ class GuestFolioControllerTest extends AbstractCatalogApiTest {
 				.count()).isEqualTo(1);
 	}
 
-	@Test
-	void openFolioForCancelledBookingReturnsBadRequest() throws Exception {
+	@ParameterizedTest
+	@EnumSource(value = BookingStatus.class, names = {"checked_out", "cancelled", "no_show"})
+	void openFolioForTerminalBookingStatusReturnsBadRequest(BookingStatus status) throws Exception {
 		Booking booking = createFolioBooking();
-		booking.setStatus(BookingStatus.cancelled);
+		booking.setStatus(status);
 		bookingRepository.save(booking);
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/folio/open", booking.getId()).with(staffUser()))

@@ -35,7 +35,7 @@ import com.aurora.pms.service.GuestFolioService;
 public class GuestFolioServiceImpl implements GuestFolioService {
 
 	private static final Set<BookingStatus> STATUSES_WITHOUT_FOLIO =
-			EnumSet.of(BookingStatus.cancelled, BookingStatus.no_show);
+			EnumSet.of(BookingStatus.checked_out, BookingStatus.cancelled, BookingStatus.no_show);
 
 	private final BookingRepository bookingRepository;
 	private final GuestAccountRepository accountRepository;
