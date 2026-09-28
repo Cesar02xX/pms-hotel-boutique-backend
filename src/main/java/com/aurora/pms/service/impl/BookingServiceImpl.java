@@ -1,13 +1,16 @@
 package com.aurora.pms.service.impl;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -57,6 +60,8 @@ public class BookingServiceImpl implements BookingService {
 	private final BookingMapper bookingMapper;
 	private final BookingCompanionRepository companionRepository;
 	private final CheckInMapper checkInMapper;
+	private final Clock clock;
+	private final ZoneId hotelZoneId;
 
 	public BookingServiceImpl(
 			BookingRepository bookingRepository,
@@ -66,7 +71,9 @@ public class BookingServiceImpl implements BookingService {
 			RateRepository rateRepository,
 			BookingMapper bookingMapper,
 			BookingCompanionRepository companionRepository,
-			CheckInMapper checkInMapper
+			CheckInMapper checkInMapper,
+			Clock clock,
+			@Value("${pms.hotel.zone-id}") String hotelZoneId
 	) {
 		this.bookingRepository = bookingRepository;
 		this.guestRepository = guestRepository;
@@ -76,6 +83,8 @@ public class BookingServiceImpl implements BookingService {
 		this.bookingMapper = bookingMapper;
 		this.companionRepository = companionRepository;
 		this.checkInMapper = checkInMapper;
+		this.clock = clock;
+		this.hotelZoneId = ZoneId.of(hotelZoneId);
 	}
 
 	@Override
@@ -118,7 +127,7 @@ public class BookingServiceImpl implements BookingService {
 	@Override
 	@Transactional
 	public CheckInResponse checkIn(UUID id) {
-		Booking booking = getBooking(id);
+		Booking booking = getBookingForCheckIn(id);
 		validateCheckInStatus(booking);
 		validateCheckInDates(booking);
 
@@ -171,6 +180,11 @@ public class BookingServiceImpl implements BookingService {
 
 	private Booking getBooking(UUID id) {
 		return bookingRepository.findById(id)
+				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + id));
+	}
+
+	private Booking getBookingForCheckIn(UUID id) {
+		return bookingRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + id));
 	}
 
@@ -261,7 +275,7 @@ public class BookingServiceImpl implements BookingService {
 				|| !booking.getCheckIn().isBefore(booking.getCheckOut())) {
 			throw new BadRequestException("Booking dates are invalid");
 		}
-		LocalDate today = LocalDate.now();
+		LocalDate today = LocalDate.now(clock.withZone(hotelZoneId));
 		if (today.isBefore(booking.getCheckIn()) || !today.isBefore(booking.getCheckOut())) {
 			throw new BadRequestException("Booking cannot be checked in outside its stay dates");
 		}
