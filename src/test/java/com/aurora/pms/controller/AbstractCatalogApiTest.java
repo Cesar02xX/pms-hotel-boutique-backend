@@ -20,14 +20,20 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.BookingCompanion;
 import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.DocumentType;
+import com.aurora.pms.model.enums.GuestType;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.repository.BookingCompanionRepository;
+import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
@@ -64,6 +70,12 @@ abstract class AbstractCatalogApiTest {
 	@Autowired
 	protected GuestRepository guestRepository;
 
+	@Autowired
+	protected BookingRepository bookingRepository;
+
+	@Autowired
+	protected BookingCompanionRepository bookingCompanionRepository;
+
 	protected MockMvc mockMvc;
 
 	private final List<UUID> rateIds = new ArrayList<>();
@@ -71,6 +83,8 @@ abstract class AbstractCatalogApiTest {
 	private final List<UUID> roomTypeIds = new ArrayList<>();
 	private final List<UUID> roomFeatureIds = new ArrayList<>();
 	private final List<UUID> guestIds = new ArrayList<>();
+	private final List<UUID> bookingIds = new ArrayList<>();
+	private final List<UUID> bookingCompanionIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpMockMvc() {
@@ -81,6 +95,8 @@ abstract class AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpCatalogData() {
+		bookingCompanionRepository.deleteAllById(bookingCompanionIds);
+		bookingRepository.deleteAllById(bookingIds);
 		guestRepository.deleteAllById(guestIds);
 		rateRepository.deleteAllById(rateIds);
 		roomRepository.deleteAllById(roomIds);
@@ -173,6 +189,44 @@ abstract class AbstractCatalogApiTest {
 		return guest;
 	}
 
+	protected Booking createBooking(Guest guest, RoomType roomType, Room room, Rate rate, int adults, int children) {
+		Booking booking = new Booking();
+		booking.setConfirmationCode("BKG-" + uniqueSuffix());
+		booking.setGuestLinkCode("GL-" + uniqueSuffix());
+		booking.setGuest(guest);
+		booking.setRoom(room);
+		booking.setRoomType(roomType);
+		booking.setRate(rate);
+		booking.setCheckIn(LocalDate.of(2026, 4, 10));
+		booking.setCheckOut(LocalDate.of(2026, 4, 12));
+		booking.setStatus(BookingStatus.confirmed);
+		booking.setAdults(adults);
+		booking.setChildren(children);
+		booking.setTotalAmountCents(rate != null ? rate.getPriceCents() * 2 : 0L);
+		booking.setCurrency("GTQ");
+		booking.setNotes("Test booking");
+		booking.setCreatedAt(now());
+		booking.setUpdatedAt(now());
+		booking = bookingRepository.save(booking);
+		bookingIds.add(booking.getId());
+		return booking;
+	}
+
+	protected BookingCompanion createBookingCompanion(Booking booking, GuestType guestType) {
+		BookingCompanion companion = new BookingCompanion();
+		companion.setBooking(booking);
+		companion.setFirstName("Companion");
+		companion.setLastName("Guest " + uniqueSuffix());
+		companion.setDocumentType(DocumentType.passport);
+		companion.setDocumentNumber("C-" + uniqueSuffix());
+		companion.setGuestType(guestType);
+		companion.setCreatedAt(now());
+		companion.setUpdatedAt(now());
+		companion = bookingCompanionRepository.save(companion);
+		bookingCompanionIds.add(companion.getId());
+		return companion;
+	}
+
 	protected UUID trackCreatedRoom(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		roomIds.add(id);
@@ -194,6 +248,12 @@ abstract class AbstractCatalogApiTest {
 	protected UUID trackCreatedGuest(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		guestIds.add(id);
+		return id;
+	}
+
+	protected UUID trackCreatedBookingCompanion(MvcResult result) throws Exception {
+		UUID id = extractId(result);
+		bookingCompanionIds.add(id);
 		return id;
 	}
 
