@@ -20,12 +20,15 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.DocumentType;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
 import com.aurora.pms.repository.RoomRepository;
@@ -58,12 +61,16 @@ abstract class AbstractCatalogApiTest {
 	@Autowired
 	protected RateRepository rateRepository;
 
+	@Autowired
+	protected GuestRepository guestRepository;
+
 	protected MockMvc mockMvc;
 
 	private final List<UUID> rateIds = new ArrayList<>();
 	private final List<UUID> roomIds = new ArrayList<>();
 	private final List<UUID> roomTypeIds = new ArrayList<>();
 	private final List<UUID> roomFeatureIds = new ArrayList<>();
+	private final List<UUID> guestIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpMockMvc() {
@@ -74,6 +81,7 @@ abstract class AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpCatalogData() {
+		guestRepository.deleteAllById(guestIds);
 		rateRepository.deleteAllById(rateIds);
 		roomRepository.deleteAllById(roomIds);
 		roomTypeIds.forEach(roomTypeId ->
@@ -148,6 +156,23 @@ abstract class AbstractCatalogApiTest {
 	}
 
 	/** Registra para limpieza un recurso creado vía API y devuelve su id. */
+	protected Guest createGuest() {
+		Guest guest = new Guest();
+		guest.setFirstName("Test");
+		guest.setLastName("Guest " + uniqueSuffix());
+		guest.setEmail("guest.%s@aurora.test".formatted(uniqueSuffix()));
+		guest.setPhone("+502 5555 0101");
+		guest.setNationality("GT");
+		guest.setDocumentType(DocumentType.passport);
+		guest.setDocumentNumber("P-" + uniqueSuffix());
+		guest.setNotes("Test guest");
+		guest.setCreatedAt(now());
+		guest.setUpdatedAt(now());
+		guest = guestRepository.save(guest);
+		guestIds.add(guest.getId());
+		return guest;
+	}
+
 	protected UUID trackCreatedRoom(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		roomIds.add(id);
@@ -163,6 +188,12 @@ abstract class AbstractCatalogApiTest {
 	protected UUID trackCreatedRate(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		rateIds.add(id);
+		return id;
+	}
+
+	protected UUID trackCreatedGuest(MvcResult result) throws Exception {
+		UUID id = extractId(result);
+		guestIds.add(id);
 		return id;
 	}
 
