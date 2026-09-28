@@ -32,5 +32,9 @@ security:
     access-expiration: ${JWT_ACCESS_EXPIRATION:1800000}
     refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 
+pms:
+  hotel:
+    zone-id: ${PMS_HOTEL_ZONE_ID:America/Guatemala}
+
 server:
   port: 8080
