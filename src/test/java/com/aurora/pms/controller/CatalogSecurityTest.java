@@ -41,7 +41,11 @@ class CatalogSecurityTest extends AbstractCatalogApiTest {
 				Arguments.of(HttpMethod.GET, "/api/v1/bookings"),
 				Arguments.of(HttpMethod.GET, "/api/v1/bookings/" + id),
 				Arguments.of(HttpMethod.POST, "/api/v1/bookings"),
-				Arguments.of(HttpMethod.PUT, "/api/v1/bookings/" + id)
+				Arguments.of(HttpMethod.PUT, "/api/v1/bookings/" + id),
+				Arguments.of(HttpMethod.GET, "/api/v1/bookings/" + id + "/companions"),
+				Arguments.of(HttpMethod.POST, "/api/v1/bookings/" + id + "/companions"),
+				Arguments.of(HttpMethod.PUT, "/api/v1/bookings/" + id + "/companions/" + id),
+				Arguments.of(HttpMethod.DELETE, "/api/v1/bookings/" + id + "/companions/" + id)
 		);
 	}
 

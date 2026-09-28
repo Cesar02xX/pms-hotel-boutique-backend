@@ -1,5 +1,29 @@
 # Integration Log
 
+## 2026-09-27 - Booking Companions API
+
+Integrated the Booking Companion backend module from GitHub issue #13.
+
+Added:
+
+- Nested companion REST controller under `/api/v1/bookings/{bookingId}/companions`.
+- Create/update request DTOs and response DTO.
+- Booking companion mapper.
+- Booking companion service interface and implementation.
+- Repository lookups for companions by booking and by booking-owned id.
+- Controller tests for list, create, update, delete, missing resources, ownership mismatch, capacity limits, adult/child limits, primary guest duplication, invalid UUIDs and invalid request bodies.
+- Security coverage in `CatalogSecurityTest` for all companion endpoints.
+- Module context notes in `booking-companion-module-context.md`.
+
+Validation notes:
+
+- The primary guest counts as one adult occupant.
+- Total occupants include primary guest plus companions.
+- Total occupants cannot exceed the booking room type capacity.
+- Adult companions cannot exceed `booking.adults - 1`.
+- Child companions cannot exceed `booking.children`.
+- Companion create/update timestamps are controlled by the backend.
+
 ## 2026-09-27 - Guests API
 
 Integrated the Guest backend module from GitHub issue #8.

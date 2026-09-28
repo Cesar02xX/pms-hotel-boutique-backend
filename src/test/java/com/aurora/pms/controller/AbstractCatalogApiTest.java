@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.BookingCompanion;
 import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
@@ -28,8 +29,10 @@ import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.DocumentType;
+import com.aurora.pms.model.enums.GuestType;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.repository.BookingCompanionRepository;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
@@ -70,6 +73,9 @@ abstract class AbstractCatalogApiTest {
 	@Autowired
 	protected BookingRepository bookingRepository;
 
+	@Autowired
+	protected BookingCompanionRepository bookingCompanionRepository;
+
 	protected MockMvc mockMvc;
 
 	private final List<UUID> rateIds = new ArrayList<>();
@@ -78,6 +84,7 @@ abstract class AbstractCatalogApiTest {
 	private final List<UUID> roomFeatureIds = new ArrayList<>();
 	private final List<UUID> guestIds = new ArrayList<>();
 	private final List<UUID> bookingIds = new ArrayList<>();
+	private final List<UUID> bookingCompanionIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpMockMvc() {
@@ -88,6 +95,7 @@ abstract class AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpCatalogData() {
+		bookingCompanionRepository.deleteAllById(bookingCompanionIds);
 		bookingRepository.deleteAllById(bookingIds);
 		guestRepository.deleteAllById(guestIds);
 		rateRepository.deleteAllById(rateIds);
@@ -182,6 +190,10 @@ abstract class AbstractCatalogApiTest {
 	}
 
 	protected Booking createBooking(Guest guest, RoomType roomType, Room room, Rate rate) {
+		return createBooking(guest, roomType, room, rate, 1, 0);
+	}
+
+	protected Booking createBooking(Guest guest, RoomType roomType, Room room, Rate rate, int adults, int children) {
 		Booking booking = new Booking();
 		booking.setConfirmationCode("BKG-" + uniqueSuffix());
 		booking.setGuestLinkCode("GL-" + uniqueSuffix());
@@ -192,8 +204,8 @@ abstract class AbstractCatalogApiTest {
 		booking.setCheckIn(LocalDate.of(2026, 3, 10));
 		booking.setCheckOut(LocalDate.of(2026, 3, 12));
 		booking.setStatus(BookingStatus.confirmed);
-		booking.setAdults(1);
-		booking.setChildren(0);
+		booking.setAdults(adults);
+		booking.setChildren(children);
 		booking.setTotalAmountCents(rate != null ? rate.getPriceCents() * 2 : 0L);
 		booking.setCurrency("GTQ");
 		booking.setNotes("Test booking");
@@ -202,6 +214,21 @@ abstract class AbstractCatalogApiTest {
 		booking = bookingRepository.save(booking);
 		bookingIds.add(booking.getId());
 		return booking;
+	}
+
+	protected BookingCompanion createBookingCompanion(Booking booking, GuestType guestType) {
+		BookingCompanion companion = new BookingCompanion();
+		companion.setBooking(booking);
+		companion.setFirstName("Companion");
+		companion.setLastName("Guest " + uniqueSuffix());
+		companion.setDocumentType(DocumentType.passport);
+		companion.setDocumentNumber("C-" + uniqueSuffix());
+		companion.setGuestType(guestType);
+		companion.setCreatedAt(now());
+		companion.setUpdatedAt(now());
+		companion = bookingCompanionRepository.save(companion);
+		bookingCompanionIds.add(companion.getId());
+		return companion;
 	}
 
 	protected UUID trackCreatedRoom(MvcResult result) throws Exception {
@@ -231,6 +258,12 @@ abstract class AbstractCatalogApiTest {
 	protected UUID trackCreatedBooking(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		bookingIds.add(id);
+		return id;
+	}
+
+	protected UUID trackCreatedBookingCompanion(MvcResult result) throws Exception {
+		UUID id = extractId(result);
+		bookingCompanionIds.add(id);
 		return id;
 	}
 
