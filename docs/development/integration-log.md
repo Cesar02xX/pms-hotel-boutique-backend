@@ -1,5 +1,27 @@
 # Integration Log
 
+## 2026-09-28 - Check-in Flow
+
+Integrated the Check-in backend flow from GitHub issue #17.
+
+Added:
+
+- `POST /api/v1/bookings/{bookingId}/check-in` under the existing Booking controller.
+- Empty `CheckInRequest`, `CheckInResponse` and `CheckInMapper`.
+- `BookingService.checkIn(UUID)` implemented in the existing booking service layer.
+- Transactional update of `Booking.status` to `checked_in` and `Room.status` to `occupied`.
+- Validation for booking status, repeated check-in, assigned room, room type compatibility, room availability, housekeeping readiness, stay date window, overlapping room bookings, companion composition and capacity.
+- Controller tests for valid check-in, invalid states/resources/composition/capacity, atomic no-partial-update behavior, invalid UUID and security coverage.
+- Module context notes in `check-in-module-context.md`.
+
+Important behavior:
+
+- Check-in is allowed only for `confirmed` bookings.
+- The current date must satisfy `checkIn <= today < checkOut`.
+- The primary guest counts as one adult.
+- Adult and child companions must exactly match the booking occupancy declaration.
+- Folio creation remains out of scope for this ticket.
+
 ## 2026-09-27 - Booking Companions API
 
 Integrated the Booking Companion backend module from GitHub issue #13.
