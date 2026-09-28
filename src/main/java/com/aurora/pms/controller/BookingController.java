@@ -13,10 +13,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.aurora.pms.dto.request.CheckInRequest;
 import com.aurora.pms.dto.request.CreateBookingRequest;
 import com.aurora.pms.dto.request.UpdateBookingRequest;
 import com.aurora.pms.dto.response.ApiErrorResponse;
 import com.aurora.pms.dto.response.BookingResponse;
+import com.aurora.pms.dto.response.CheckInResponse;
 import com.aurora.pms.service.BookingService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -86,5 +88,20 @@ public class BookingController {
 	public ResponseEntity<BookingResponse> update(@PathVariable UUID id,
 			@Valid @RequestBody UpdateBookingRequest request) {
 		return ResponseEntity.ok(bookingService.update(id, request));
+	}
+
+	@PostMapping("/{id}/check-in")
+	@Operation(summary = "Check in a booking",
+			description = "Validates the booking, companions and room, then marks the booking as checked in")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Booking checked in"),
+			@ApiResponse(responseCode = "400", description = "Booking cannot be checked in",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Booking or room not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<CheckInResponse> checkIn(@PathVariable UUID id,
+			@RequestBody(required = false) CheckInRequest request) {
+		return ResponseEntity.ok(bookingService.checkIn(id));
 	}
 }

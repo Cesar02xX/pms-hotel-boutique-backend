@@ -1,6 +1,7 @@
 package com.aurora.pms.service.impl;
 
 import java.security.SecureRandom;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -14,15 +15,22 @@ import org.springframework.transaction.annotation.Transactional;
 import com.aurora.pms.dto.request.CreateBookingRequest;
 import com.aurora.pms.dto.request.UpdateBookingRequest;
 import com.aurora.pms.dto.response.BookingResponse;
+import com.aurora.pms.dto.response.CheckInResponse;
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.BookingMapper;
+import com.aurora.pms.mapper.CheckInMapper;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.BookingCompanion;
 import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.GuestType;
+import com.aurora.pms.model.enums.RoomHousekeepingStatus;
+import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.repository.BookingCompanionRepository;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
@@ -47,6 +55,8 @@ public class BookingServiceImpl implements BookingService {
 	private final RoomRepository roomRepository;
 	private final RateRepository rateRepository;
 	private final BookingMapper bookingMapper;
+	private final BookingCompanionRepository companionRepository;
+	private final CheckInMapper checkInMapper;
 
 	public BookingServiceImpl(
 			BookingRepository bookingRepository,
@@ -54,7 +64,9 @@ public class BookingServiceImpl implements BookingService {
 			RoomTypeRepository roomTypeRepository,
 			RoomRepository roomRepository,
 			RateRepository rateRepository,
-			BookingMapper bookingMapper
+			BookingMapper bookingMapper,
+			BookingCompanionRepository companionRepository,
+			CheckInMapper checkInMapper
 	) {
 		this.bookingRepository = bookingRepository;
 		this.guestRepository = guestRepository;
@@ -62,6 +74,8 @@ public class BookingServiceImpl implements BookingService {
 		this.roomRepository = roomRepository;
 		this.rateRepository = rateRepository;
 		this.bookingMapper = bookingMapper;
+		this.companionRepository = companionRepository;
+		this.checkInMapper = checkInMapper;
 	}
 
 	@Override
@@ -99,6 +113,30 @@ public class BookingServiceImpl implements BookingService {
 		booking.setUpdatedAt(now);
 
 		return bookingMapper.toResponse(bookingRepository.save(booking));
+	}
+
+	@Override
+	@Transactional
+	public CheckInResponse checkIn(UUID id) {
+		Booking booking = getBooking(id);
+		validateCheckInStatus(booking);
+		validateCheckInDates(booking);
+
+		Room room = getAssignedRoom(booking);
+		validateCheckInRoom(booking, room);
+		List<BookingCompanion> companions = companionRepository.findByBookingIdOrderByCreatedAt(booking.getId());
+		validateCheckInComposition(booking, companions);
+
+		OffsetDateTime now = OffsetDateTime.now();
+		booking.setStatus(BookingStatus.checked_in);
+		booking.setUpdatedAt(now);
+		room.setStatus(RoomStatus.occupied);
+		room.setUpdatedAt(now);
+
+		bookingRepository.save(booking);
+		roomRepository.save(room);
+
+		return checkInMapper.toResponse(booking, room, companions.size(), now);
 	}
 
 	@Override
@@ -151,6 +189,15 @@ public class BookingServiceImpl implements BookingService {
 				.orElseThrow(() -> new BadRequestException("Room not found: " + id));
 	}
 
+	private Room getAssignedRoom(Booking booking) {
+		if (booking.getRoom() == null) {
+			throw new BadRequestException("Booking must have an assigned room before check-in");
+		}
+		UUID roomId = booking.getRoom().getId();
+		return roomRepository.findById(roomId)
+				.orElseThrow(() -> new ResourceNotFoundException("Room not found: " + roomId));
+	}
+
 	private Rate getRate(UUID id) {
 		return rateRepository.findById(id)
 				.orElseThrow(() -> new BadRequestException("Rate not found: " + id));
@@ -197,6 +244,64 @@ public class BookingServiceImpl implements BookingService {
 						checkIn, checkOut);
 		if (hasOverlap) {
 			throw new BadRequestException("Room is not available for the requested dates");
+		}
+	}
+
+	private void validateCheckInStatus(Booking booking) {
+		if (booking.getStatus() == BookingStatus.checked_in) {
+			throw new BadRequestException("Booking is already checked in");
+		}
+		if (booking.getStatus() != BookingStatus.confirmed) {
+			throw new BadRequestException("Booking status does not allow check-in");
+		}
+	}
+
+	private void validateCheckInDates(Booking booking) {
+		if (booking.getCheckIn() == null || booking.getCheckOut() == null
+				|| !booking.getCheckIn().isBefore(booking.getCheckOut())) {
+			throw new BadRequestException("Booking dates are invalid");
+		}
+		LocalDate today = LocalDate.now();
+		if (today.isBefore(booking.getCheckIn()) || !today.isBefore(booking.getCheckOut())) {
+			throw new BadRequestException("Booking cannot be checked in outside its stay dates");
+		}
+	}
+
+	private void validateCheckInRoom(Booking booking, Room room) {
+		if (!room.getRoomType().getId().equals(booking.getRoomType().getId())) {
+			throw new BadRequestException("Room does not belong to booking room type");
+		}
+		if (room.getStatus() != RoomStatus.available) {
+			throw new BadRequestException("Room is not available for check-in");
+		}
+		if (room.getHousekeepingStatus() != RoomHousekeepingStatus.clean
+				&& room.getHousekeepingStatus() != RoomHousekeepingStatus.inspected) {
+			throw new BadRequestException("Room is not ready for check-in");
+		}
+		boolean hasOverlap = bookingRepository.existsActiveOverlapExcludingBooking(booking.getId(), room.getId(),
+				ACTIVE_ROOM_STATUSES, booking.getCheckIn(), booking.getCheckOut());
+		if (hasOverlap) {
+			throw new BadRequestException("Room is not available for the requested dates");
+		}
+	}
+
+	private void validateCheckInComposition(Booking booking, List<BookingCompanion> companions) {
+		long adultCompanions = companions.stream()
+				.filter(companion -> companion.getGuestType() == GuestType.adult)
+				.count();
+		long childCompanions = companions.stream()
+				.filter(companion -> companion.getGuestType() == GuestType.child)
+				.count();
+
+		long adults = adultCompanions + 1;
+		long children = childCompanions;
+		long totalOccupants = adults + children;
+
+		if (totalOccupants > booking.getRoomType().getCapacity()) {
+			throw new BadRequestException("Booking occupants exceed room type capacity");
+		}
+		if (adults != booking.getAdults() || children != booking.getChildren()) {
+			throw new BadRequestException("Booking companions do not match declared adult and child composition");
 		}
 	}
 

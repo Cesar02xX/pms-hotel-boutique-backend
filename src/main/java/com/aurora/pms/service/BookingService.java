@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.aurora.pms.dto.request.CreateBookingRequest;
 import com.aurora.pms.dto.request.UpdateBookingRequest;
 import com.aurora.pms.dto.response.BookingResponse;
+import com.aurora.pms.dto.response.CheckInResponse;
 
 public interface BookingService {
 
@@ -16,4 +17,6 @@ public interface BookingService {
 	BookingResponse create(CreateBookingRequest request);
 
 	BookingResponse update(UUID id, UpdateBookingRequest request);
+
+	CheckInResponse checkIn(UUID id);
 }
