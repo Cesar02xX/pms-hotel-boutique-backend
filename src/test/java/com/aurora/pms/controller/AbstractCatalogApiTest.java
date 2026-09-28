@@ -20,14 +20,17 @@ import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.DocumentType;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
@@ -64,6 +67,9 @@ abstract class AbstractCatalogApiTest {
 	@Autowired
 	protected GuestRepository guestRepository;
 
+	@Autowired
+	protected BookingRepository bookingRepository;
+
 	protected MockMvc mockMvc;
 
 	private final List<UUID> rateIds = new ArrayList<>();
@@ -71,6 +77,7 @@ abstract class AbstractCatalogApiTest {
 	private final List<UUID> roomTypeIds = new ArrayList<>();
 	private final List<UUID> roomFeatureIds = new ArrayList<>();
 	private final List<UUID> guestIds = new ArrayList<>();
+	private final List<UUID> bookingIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpMockMvc() {
@@ -81,6 +88,7 @@ abstract class AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpCatalogData() {
+		bookingRepository.deleteAllById(bookingIds);
 		guestRepository.deleteAllById(guestIds);
 		rateRepository.deleteAllById(rateIds);
 		roomRepository.deleteAllById(roomIds);
@@ -173,6 +181,29 @@ abstract class AbstractCatalogApiTest {
 		return guest;
 	}
 
+	protected Booking createBooking(Guest guest, RoomType roomType, Room room, Rate rate) {
+		Booking booking = new Booking();
+		booking.setConfirmationCode("BKG-" + uniqueSuffix());
+		booking.setGuestLinkCode("GL-" + uniqueSuffix());
+		booking.setGuest(guest);
+		booking.setRoomType(roomType);
+		booking.setRoom(room);
+		booking.setRate(rate);
+		booking.setCheckIn(LocalDate.of(2026, 3, 10));
+		booking.setCheckOut(LocalDate.of(2026, 3, 12));
+		booking.setStatus(BookingStatus.confirmed);
+		booking.setAdults(1);
+		booking.setChildren(0);
+		booking.setTotalAmountCents(rate != null ? rate.getPriceCents() * 2 : 0L);
+		booking.setCurrency("GTQ");
+		booking.setNotes("Test booking");
+		booking.setCreatedAt(now());
+		booking.setUpdatedAt(now());
+		booking = bookingRepository.save(booking);
+		bookingIds.add(booking.getId());
+		return booking;
+	}
+
 	protected UUID trackCreatedRoom(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		roomIds.add(id);
@@ -194,6 +225,12 @@ abstract class AbstractCatalogApiTest {
 	protected UUID trackCreatedGuest(MvcResult result) throws Exception {
 		UUID id = extractId(result);
 		guestIds.add(id);
+		return id;
+	}
+
+	protected UUID trackCreatedBooking(MvcResult result) throws Exception {
+		UUID id = extractId(result);
+		bookingIds.add(id);
 		return id;
 	}
 
