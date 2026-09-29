@@ -16,7 +16,7 @@ import com.aurora.pms.model.enums.ChargeStatus;
 @Component
 public class GuestFolioMapper {
 
-	public GuestFolioResponse toFolioResponse(GuestAccount account, List<Charge> charges) {
+	public GuestFolioResponse toFolioResponse(GuestAccount account, List<Charge> charges, long completedPaymentsCents) {
 		long activeChargesCents = 0;
 		long voidedChargesCents = 0;
 		for (Charge charge : charges) {
@@ -38,6 +38,7 @@ public class GuestFolioMapper {
 				account.getClosedAt(),
 				activeChargesCents,
 				voidedChargesCents,
+				completedPaymentsCents,
 				charges.stream().map(this::toChargeResponse).toList()
 		);
 	}

@@ -3,6 +3,7 @@ package com.aurora.pms.service.impl;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -13,6 +14,7 @@ import com.aurora.pms.dto.response.PaymentResponse;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.PaymentMapper;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Payment;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.PaymentStatus;
@@ -28,6 +30,7 @@ public class PaymentServiceImpl implements PaymentService {
 	private final PaymentRepository paymentRepository;
 	private final UserRepository userRepository;
 	private final PaymentMapper paymentMapper;
+	private final GuestAccountBalance balance;
 	private final Clock clock;
 
 	public PaymentServiceImpl(
@@ -35,12 +38,14 @@ public class PaymentServiceImpl implements PaymentService {
 			PaymentRepository paymentRepository,
 			UserRepository userRepository,
 			PaymentMapper paymentMapper,
+			GuestAccountBalance balance,
 			Clock clock
 	) {
 		this.bookingRepository = bookingRepository;
 		this.paymentRepository = paymentRepository;
 		this.userRepository = userRepository;
 		this.paymentMapper = paymentMapper;
+		this.balance = balance;
 		this.clock = clock;
 	}
 
@@ -57,6 +62,8 @@ public class PaymentServiceImpl implements PaymentService {
 	@Transactional
 	public PaymentResponse create(UUID bookingId, CreatePaymentRequest request, String actorEmail) {
 		Booking booking = getBooking(bookingId);
+		// Sin folio abierto aún no hay saldo que mover: el pago se descuenta al abrirlo.
+		Optional<GuestAccount> account = balance.lockOpenAccountIfPresent(bookingId);
 
 		// Sin pasarela real: el pago se registra ya cobrado en recepción.
 		Payment payment = paymentMapper.toEntity(request, booking);
@@ -66,8 +73,12 @@ public class PaymentServiceImpl implements PaymentService {
 		payment.setPaidAt(now);
 		payment.setCreatedAt(now);
 		payment.setProcessedByUser(findActor(actorEmail));
+		payment = paymentRepository.save(payment);
 
-		return paymentMapper.toResponse(paymentRepository.save(payment));
+		long amountCents = payment.getAmountCents();
+		account.ifPresent(openAccount -> balance.apply(openAccount, -amountCents, now));
+
+		return paymentMapper.toResponse(payment);
 	}
 
 	private User findActor(String actorEmail) {

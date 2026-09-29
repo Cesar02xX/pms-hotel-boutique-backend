@@ -57,10 +57,11 @@ public class PaymentController {
 	@PostMapping
 	@Operation(summary = "Register a payment",
 			description = "The payment is recorded as completed. status, currency, paidAt, createdAt and "
-					+ "processedByUser are set by the server.")
+					+ "processedByUser are set by the server. If the booking has an open guest folio, the payment "
+					+ "reduces its balance; otherwise it is counted when the folio is opened.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Payment registered"),
-			@ApiResponse(responseCode = "400", description = "Invalid request",
+			@ApiResponse(responseCode = "400", description = "Invalid request or guest folio closed",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "Booking not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))

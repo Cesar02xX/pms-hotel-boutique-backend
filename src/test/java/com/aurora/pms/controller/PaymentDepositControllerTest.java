@@ -32,10 +32,14 @@ import com.aurora.pms.model.Deposit;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.User;
+import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.enums.DepositStatus;
+import com.aurora.pms.model.enums.GuestAccountStatus;
 import com.aurora.pms.model.enums.PaymentStatus;
 import com.aurora.pms.model.enums.UserStatus;
+import com.aurora.pms.repository.ChargeRepository;
 import com.aurora.pms.repository.DepositRepository;
+import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.PaymentRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
@@ -48,6 +52,12 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 
 	@Autowired
 	private DepositRepository depositRepository;
+
+	@Autowired
+	private ChargeRepository chargeRepository;
+
+	@Autowired
+	private GuestAccountRepository guestAccountRepository;
 
 	@Autowired
 	private UserRepository userRepository;
@@ -65,6 +75,8 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 		moneyBookingIds.forEach(bookingId -> {
 			paymentRepository.deleteAll(paymentRepository.findByBookingIdOrderByCreatedAtAsc(bookingId));
 			depositRepository.deleteAll(depositRepository.findByBookingIdOrderByCollectedAtAscCreatedAtAsc(bookingId));
+			chargeRepository.deleteAll(chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(bookingId));
+			guestAccountRepository.findByBookingId(bookingId).ifPresent(guestAccountRepository::delete);
 		});
 		userRepository.deleteAllById(userIds);
 		roleRepository.deleteAllById(roleIds);
@@ -383,6 +395,70 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.status").value(400));
 	}
 
+	// ---------- Integración con el folio
+
+	@Test
+	void paymentReducesOpenFolioBalance() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 10000L);
+
+		createPayment(booking, 4000L);
+
+		mockMvc.perform(get("/api/v1/bookings/{bookingId}/folio", booking.getId()).with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.balanceCents").value(6000))
+				.andExpect(jsonPath("$.activeChargesCents").value(10000))
+				.andExpect(jsonPath("$.completedPaymentsCents").value(4000));
+	}
+
+	@Test
+	void paymentBeforeFolioIsCountedWhenFolioOpens() throws Exception {
+		Booking booking = createMoneyBooking();
+		createPayment(booking, 3000L);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/folio/open", booking.getId()).with(staffUser()))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.balanceCents").value(-3000))
+				.andExpect(jsonPath("$.completedPaymentsCents").value(3000));
+
+		postCharge(booking, 5000L);
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(2000L);
+	}
+
+	@Test
+	void paymentOnClosedFolioReturnsBadRequestAndIsNotSaved() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		GuestAccount account = currentAccount(booking);
+		account.setStatus(GuestAccountStatus.closed);
+		account.setClosedAt(now());
+		guestAccountRepository.save(account);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(paymentBody(1000L)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Guest account is not open"));
+
+		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId())).isEmpty();
+		assertThat(currentAccount(booking).getBalanceCents()).isZero();
+	}
+
+	@Test
+	void depositsDoNotChangeFolioBalance() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 10000L);
+
+		String depositId = createDeposit(booking, 20000L);
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(10000L);
+
+		refundDeposit(booking, depositId);
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(10000L);
+	}
+
 	// ---------- Security
 
 	static Stream<Arguments> moneyEndpoints() {
@@ -449,6 +525,25 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/deposits/{depositId}/refund", booking.getId(), depositId)
 						.with(staffUser()))
 				.andExpect(status().isOk());
+	}
+
+	private void openFolio(Booking booking) throws Exception {
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/folio/open", booking.getId()).with(staffUser()))
+				.andExpect(status().isCreated());
+	}
+
+	private void postCharge(Booking booking, long unitPriceCents) throws Exception {
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/charges", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"description": "Noche", "quantity": 1, "unitPriceCents": %d, "category": "stay"}
+								""".formatted(unitPriceCents)))
+				.andExpect(status().isCreated());
+	}
+
+	private GuestAccount currentAccount(Booking booking) {
+		return guestAccountRepository.findByBookingId(booking.getId()).orElseThrow();
 	}
 
 	private User createStaffUser() {

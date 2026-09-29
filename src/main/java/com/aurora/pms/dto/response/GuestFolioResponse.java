@@ -17,6 +17,7 @@ public record GuestFolioResponse(
 		OffsetDateTime closedAt,
 		Long activeChargesCents,
 		Long voidedChargesCents,
+		Long completedPaymentsCents,
 		List<ChargeResponse> charges
 ) {
 }
