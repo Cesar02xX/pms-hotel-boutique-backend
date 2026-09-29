@@ -23,7 +23,6 @@ import com.aurora.pms.model.Product;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ChargeStatus;
-import com.aurora.pms.model.enums.GuestAccountStatus;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.ChargeRepository;
 import com.aurora.pms.repository.GuestAccountRepository;
@@ -43,6 +42,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	private final ProductRepository productRepository;
 	private final UserRepository userRepository;
 	private final GuestFolioMapper folioMapper;
+	private final GuestAccountBalance balance;
 
 	public GuestFolioServiceImpl(
 			BookingRepository bookingRepository,
@@ -50,7 +50,8 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 			ChargeRepository chargeRepository,
 			ProductRepository productRepository,
 			UserRepository userRepository,
-			GuestFolioMapper folioMapper
+			GuestFolioMapper folioMapper,
+			GuestAccountBalance balance
 	) {
 		this.bookingRepository = bookingRepository;
 		this.accountRepository = accountRepository;
@@ -58,6 +59,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 		this.productRepository = productRepository;
 		this.userRepository = userRepository;
 		this.folioMapper = folioMapper;
+		this.balance = balance;
 	}
 
 	@Override
@@ -72,7 +74,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	@Override
 	@Transactional
 	public OpenFolioResult openFolio(UUID bookingId) {
-		Booking booking = getBooking(bookingId);
+		Booking booking = getBookingForFolioMutation(bookingId);
 
 		GuestAccount existing = accountRepository.findByBookingId(bookingId).orElse(null);
 		if (existing != null) {
@@ -82,8 +84,8 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 			throw new BadRequestException("Cannot open a guest account for a booking with status " + booking.getStatus());
 		}
 
-		// El saldo inicial parte de los cargos no anulados que ya tuviera la reserva.
-		long initialBalance = chargeRepository.sumAmountCentsByBookingIdExcludingStatus(bookingId, ChargeStatus.voided);
+		// El saldo inicial parte de los cargos y pagos que ya tuviera la reserva.
+		long initialBalance = balance.computeFromMovements(bookingId);
 		int inserted = accountRepository.insertOpenAccountIfAbsent(
 				bookingId, booking.getGuest().getId(), initialBalance, OffsetDateTime.now());
 
@@ -105,7 +107,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	@Transactional
 	public ChargeResponse createCharge(UUID bookingId, CreateChargeRequest request, String actorEmail) {
 		Booking booking = getBooking(bookingId);
-		GuestAccount account = getOpenAccountForUpdate(bookingId);
+		GuestAccount account = balance.lockOpenAccount(bookingId);
 		Product product = request.productId() == null ? null : productRepository.findById(request.productId())
 				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + request.productId()));
 
@@ -120,9 +122,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 		charge.setCreatedByUser(findActor(actorEmail));
 		charge = chargeRepository.save(charge);
 
-		account.setBalanceCents(addToBalance(account.getBalanceCents(), amountCents));
-		account.setUpdatedAt(now);
-		accountRepository.save(account);
+		balance.apply(account, amountCents, now);
 
 		return folioMapper.toChargeResponse(charge);
 	}
@@ -131,7 +131,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	@Transactional
 	public ChargeResponse voidCharge(UUID bookingId, UUID chargeId, VoidChargeRequest request) {
 		ensureBookingExists(bookingId);
-		GuestAccount account = getOpenAccountForUpdate(bookingId);
+		GuestAccount account = balance.lockOpenAccount(bookingId);
 		Charge charge = chargeRepository.findByIdAndBookingId(chargeId, bookingId)
 				.orElseThrow(() -> new ResourceNotFoundException("Charge not found: " + chargeId));
 
@@ -143,27 +143,15 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 		charge.setVoidReason(request.reason().trim());
 		charge = chargeRepository.save(charge);
 
-		account.setBalanceCents(addToBalance(account.getBalanceCents(), -charge.getAmountCents()));
-		account.setUpdatedAt(OffsetDateTime.now());
-		accountRepository.save(account);
+		balance.apply(account, -charge.getAmountCents(), OffsetDateTime.now());
 
 		return folioMapper.toChargeResponse(charge);
 	}
 
 	private GuestFolioResponse toFolioResponse(GuestAccount account) {
-		List<Charge> charges = chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(
-				account.getBooking().getId());
-		return folioMapper.toFolioResponse(account, charges);
-	}
-
-	/** Bloquea la fila de la cuenta para que cargos y anulaciones concurrentes no pisen el saldo. */
-	private GuestAccount getOpenAccountForUpdate(UUID bookingId) {
-		GuestAccount account = accountRepository.findByBookingIdForUpdate(bookingId)
-				.orElseThrow(() -> accountNotFound(bookingId));
-		if (account.getStatus() != GuestAccountStatus.open) {
-			throw new BadRequestException("Guest account is not open");
-		}
-		return account;
+		UUID bookingId = account.getBooking().getId();
+		List<Charge> charges = chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(bookingId);
+		return folioMapper.toFolioResponse(account, charges, balance.completedPaymentsCents(bookingId));
 	}
 
 	private User findActor(String actorEmail) {
@@ -184,8 +172,13 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
 	}
 
+	private Booking getBookingForFolioMutation(UUID bookingId) {
+		return bookingRepository.findByIdForUpdate(bookingId)
+				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+	}
+
 	private static ResourceNotFoundException accountNotFound(UUID bookingId) {
-		return new ResourceNotFoundException("Guest account not found for booking: " + bookingId);
+		return GuestAccountBalance.accountNotFound(bookingId);
 	}
 
 	private static long calculateAmount(int quantity, long unitPriceCents) {
@@ -193,14 +186,6 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 			return Math.multiplyExact(quantity, unitPriceCents);
 		} catch (ArithmeticException exception) {
 			throw new BadRequestException("Charge amount is too large");
-		}
-	}
-
-	private static long addToBalance(long balanceCents, long deltaCents) {
-		try {
-			return Math.addExact(balanceCents, deltaCents);
-		} catch (ArithmeticException exception) {
-			throw new BadRequestException("Guest account balance is too large");
 		}
 	}
 }
