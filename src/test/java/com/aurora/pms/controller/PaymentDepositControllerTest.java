@@ -149,6 +149,31 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void decimalAmountsAreRejectedInsteadOfTruncated() throws Exception {
+		Booking booking = createMoneyBooking();
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amountCents": 1.5, "method": "cash"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value(400));
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/deposits", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amountCents": 20000.99, "method": "cash"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value(400));
+
+		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId())).isEmpty();
+		assertThat(depositRepository.findByBookingIdOrderByCollectedAtAscCreatedAtAsc(booking.getId())).isEmpty();
+	}
+
+	@Test
 	void paymentWithoutMethodReturnsBadRequest() throws Exception {
 		Booking booking = createMoneyBooking();
 
