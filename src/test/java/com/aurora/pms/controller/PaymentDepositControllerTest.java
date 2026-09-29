@@ -15,6 +15,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
@@ -25,16 +30,20 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 
+import com.aurora.pms.dto.request.CreatePaymentRequest;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Deposit;
+import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.User;
-import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.enums.DepositStatus;
 import com.aurora.pms.model.enums.GuestAccountStatus;
+import com.aurora.pms.model.enums.PaymentMethod;
 import com.aurora.pms.model.enums.PaymentStatus;
 import com.aurora.pms.model.enums.UserStatus;
 import com.aurora.pms.repository.ChargeRepository;
@@ -43,6 +52,8 @@ import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.PaymentRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.service.GuestFolioService;
+import com.aurora.pms.service.PaymentService;
 import com.jayway.jsonpath.JsonPath;
 
 class PaymentDepositControllerTest extends AbstractCatalogApiTest {
@@ -64,6 +75,15 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 
 	@Autowired
 	private RoleRepository roleRepository;
+
+	@Autowired
+	private GuestFolioService folioService;
+
+	@Autowired
+	private PaymentService paymentService;
+
+	@Autowired
+	private PlatformTransactionManager transactionManager;
 
 	private final List<UUID> moneyBookingIds = new ArrayList<>();
 	private final List<UUID> userIds = new ArrayList<>();
@@ -427,6 +447,45 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void concurrentPaymentDuringFolioOpenWaitsAndUpdatesOpenedFolioBalance() throws Exception {
+		Booking booking = createMoneyBooking();
+		ExecutorService executor = Executors.newSingleThreadExecutor();
+		CountDownLatch paymentStarted = new CountDownLatch(1);
+
+		try {
+			Future<?> payment = new TransactionTemplate(transactionManager).execute(status -> {
+				bookingRepository.findByIdForUpdate(booking.getId()).orElseThrow();
+
+				Future<?> future = executor.submit(() -> {
+					paymentStarted.countDown();
+					paymentService.create(
+							booking.getId(),
+							new CreatePaymentRequest(5000L, PaymentMethod.cash, null),
+							null
+					);
+				});
+
+				awaitPaymentStart(paymentStarted);
+				waitBrieflyForUnlockedPaymentToFinish(future);
+				assertThat(future.isDone()).isFalse();
+
+				folioService.openFolio(booking.getId());
+				assertThat(currentAccount(booking).getBalanceCents()).isZero();
+				return future;
+			});
+
+			payment.get(5, TimeUnit.SECONDS);
+		} finally {
+			executor.shutdownNow();
+		}
+
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(-5000L);
+		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId()))
+				.singleElement()
+				.satisfies(payment -> assertThat(payment.getAmountCents()).isEqualTo(5000L));
+	}
+
+	@Test
 	void paymentOnClosedFolioReturnsBadRequestAndIsNotSaved() throws Exception {
 		Booking booking = createMoneyBooking();
 		openFolio(booking);
@@ -544,6 +603,26 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 
 	private GuestAccount currentAccount(Booking booking) {
 		return guestAccountRepository.findByBookingId(booking.getId()).orElseThrow();
+	}
+
+	private static void awaitPaymentStart(CountDownLatch paymentStarted) {
+		try {
+			assertThat(paymentStarted.await(2, TimeUnit.SECONDS)).isTrue();
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			throw new AssertionError("Interrupted while waiting for concurrent payment", exception);
+		}
+	}
+
+	private static void waitBrieflyForUnlockedPaymentToFinish(Future<?> payment) {
+		try {
+			for (int i = 0; i < 10 && !payment.isDone(); i++) {
+				TimeUnit.MILLISECONDS.sleep(50);
+			}
+		} catch (InterruptedException exception) {
+			Thread.currentThread().interrupt();
+			throw new AssertionError("Interrupted while checking concurrent payment", exception);
+		}
 	}
 
 	private User createStaffUser() {

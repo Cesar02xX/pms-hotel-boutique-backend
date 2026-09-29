@@ -74,7 +74,7 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	@Override
 	@Transactional
 	public OpenFolioResult openFolio(UUID bookingId) {
-		Booking booking = getBooking(bookingId);
+		Booking booking = getBookingForFolioMutation(bookingId);
 
 		GuestAccount existing = accountRepository.findByBookingId(bookingId).orElse(null);
 		if (existing != null) {
@@ -169,6 +169,11 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 
 	private Booking getBooking(UUID bookingId) {
 		return bookingRepository.findById(bookingId)
+				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+	}
+
+	private Booking getBookingForFolioMutation(UUID bookingId) {
+		return bookingRepository.findByIdForUpdate(bookingId)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
 	}
 

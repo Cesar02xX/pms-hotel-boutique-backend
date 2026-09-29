@@ -61,7 +61,7 @@ public class PaymentServiceImpl implements PaymentService {
 	@Override
 	@Transactional
 	public PaymentResponse create(UUID bookingId, CreatePaymentRequest request, String actorEmail) {
-		Booking booking = getBooking(bookingId);
+		Booking booking = getBookingForFolioMutation(bookingId);
 		// Sin folio abierto aún no hay saldo que mover: el pago se descuenta al abrirlo.
 		Optional<GuestAccount> account = balance.lockOpenAccountIfPresent(bookingId);
 
@@ -94,8 +94,8 @@ public class PaymentServiceImpl implements PaymentService {
 		}
 	}
 
-	private Booking getBooking(UUID bookingId) {
-		return bookingRepository.findById(bookingId)
+	private Booking getBookingForFolioMutation(UUID bookingId) {
+		return bookingRepository.findByIdForUpdate(bookingId)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
 	}
 }
