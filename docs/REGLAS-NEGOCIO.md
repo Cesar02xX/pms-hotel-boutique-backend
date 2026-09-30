@@ -7,7 +7,7 @@ documento.
 
 Todas las rutas cuelgan de `/api/v1`.
 
-Al final, la sección **13. Decisiones por confirmar** lista los comportamientos
+Al final, la sección **15. Decisiones por confirmar** lista los comportamientos
 que hoy funcionan de una forma pero que el equipo debería validar.
 
 ---
@@ -262,7 +262,94 @@ que hoy funcionan de una forma pero que el equipo debería validar.
 
 ---
 
-## 13. Decisiones por confirmar
+## 13. Conserjería (`/concierge/requests`)
+
+- **Solo solicitudes de conserjería.** El módulo trabaja sobre `ServiceRequest`
+  únicamente con `type = concierge`:
+  - las solicitudes de otro tipo (`housekeeping`, `maintenance`, `other`) no
+    aparecen en el listado;
+  - consultar o cambiar el estado de una solicitud de otro tipo por su ID
+    responde `404`, como si no existiera.
+- **Listado (`GET`):** filtros opcionales `bookingId` y `status`. Un valor
+  inválido en cualquiera de los dos → `400`. Orden: de la más antigua a la más
+  reciente (`requestedAt`).
+- **Creación (`POST`):**
+  - `bookingId` y `description` (no vacía) son obligatorios. `notes` es
+    opcional.
+  - La reserva debe existir. Si no existe → `400`, porque es una referencia
+    en el body.
+  - No se crean solicitudes para reservas `checked_out`, `cancelled` o
+    `no_show` (`400`).
+  - El backend fija `type = concierge` y `status = pending`, y controla
+    `requestedAt`, `createdAt` y `updatedAt`.
+  - La habitación y el huésped se toman de la reserva. `roomId` queda vacío si
+    la reserva no tiene habitación asignada.
+  - Si el cliente envía `type`, `status`, `roomId`, `guestId` o `chargeId`, se
+    ignoran.
+- **Flujo de estados (`POST /{requestId}/status`):**
+  - `pending → accepted | rejected`
+  - `accepted → in_progress | rejected`
+  - `in_progress → completed`
+  - `completed` y `rejected` son **terminales**: cualquier cambio → `400`.
+  - Cualquier otra transición, incluido repetir el mismo estado → `400`.
+  - `accepted → rejected` se permite porque una solicitud aceptada puede
+    resultar imposible de cumplir (por ejemplo, un restaurante sin
+    disponibilidad).
+  - `notes` es opcional en el cambio de estado (por ejemplo, el motivo del
+    rechazo) y se agrega a las notas existentes.
+  - El cambio de estado bloquea la solicitud, así que dos cambios simultáneos
+    no pueden saltarse el flujo.
+- **Sin cargos:** el módulo nunca crea cargos ni toca el folio; `chargeId`
+  queda en `null`.
+
+## 14. Inventario (`/inventory/items`)
+
+- **Solo existencias.** El módulo consulta artículos y registra entradas y
+  salidas sobre artículos que ya existen. No crea, edita ni elimina
+  `InventoryItem`.
+- **Listado (`GET`):** todos los filtros son opcionales y se combinan:
+  - `active` (`true`/`false`);
+  - `category`, sin distinguir mayúsculas ni espacios al inicio o al final;
+  - `lowStock=true` devuelve los artículos con `currentQuantity <=
+    minimumQuantity`, y `lowStock=false` el resto.
+
+  Un valor inválido en `active` o `lowStock` → `400`. Orden: por nombre y
+  luego por SKU.
+- **`lowStock` en la respuesta:** cada artículo incluye `lowStock`,
+  calculado en el backend con la misma regla (`currentQuantity <=
+  minimumQuantity`).
+- **Detalle y movimientos (`GET /{itemId}`, `GET /{itemId}/movements`):** los
+  artículos inactivos siguen siendo consultables. Los movimientos se listan
+  en orden cronológico. Si el artículo no existe → `404`.
+- **Registrar movimiento (`POST /{itemId}/movements`):**
+  - `type` (`in`/`out`), `reason` y `quantity` (entero > 0) son obligatorios.
+    `notes` es opcional.
+  - Las cantidades con decimales, en texto o fuera del rango de un entero se
+    rechazan (`400`) en lugar de truncarse.
+  - El artículo debe existir (`404`) y estar **activo** (`400`).
+  - **Combinaciones válidas de tipo y razón:**
+    - `in`: `purchase`, `restock`
+    - `out`: `consumption`, `sale`, `shrinkage`
+    - cualquier otra combinación → `400`.
+  - `in` suma y `out` resta a `currentQuantity`.
+  - **El stock nunca queda negativo:** una salida mayor que la existencia →
+    `400` (`Insufficient stock`). Se permite dejar el stock exactamente en 0.
+  - Una entrada que desborde el máximo de un entero → `400`.
+  - El backend controla el artículo (por la URL), `occurredAt`, `createdAt` y
+    `responsibleUser`, que se toma del JWT cuando el usuario existe en `users`
+    y queda `null` si no.
+- **Atomicidad y concurrencia:** el movimiento y la actualización de
+  `currentQuantity` ocurren en la misma transacción. El artículo se bloquea
+  mientras se registra el movimiento, así que dos salidas simultáneas no
+  pueden vender de más ni perder una resta.
+- **Sin integraciones:** no se modifica `Product.stockQuantity` aunque el
+  artículo esté vinculado a un producto. No hay integración con Room
+  Service, Caja ni Folio.
+- **Historial:** los movimientos nunca se borran ni se editan.
+
+---
+
+## 15. Decisiones por confirmar
 
 Comportamientos que **hoy funcionan así en el código** pero que no fueron
 definidos explícitamente por el equipo, o que quedaron fuera de los tickets.
@@ -344,3 +431,40 @@ decida, se mueve la regla a su módulo y se borra de aquí.
 - **Reapertura y corrección.** Una sesión cerrada no se puede reabrir, y un
   movimiento no se puede anular ni editar. → ¿Se necesita algún mecanismo de
   corrección?
+
+### Conserjería
+- **`accepted → rejected`.** El ticket lo dejaba opcional; hoy está
+  permitido. → ¿Se confirma?
+- **Reservas cerradas.** No se permiten solicitudes para reservas
+  `checked_out`, `cancelled` o `no_show` (regla agregada, no pedida por el
+  ticket). → ¿Se confirma? ¿Se permiten también en `pending`, antes de la
+  llegada del huésped? Hoy sí.
+- **Cancelación por el huésped.** No existe un estado `cancelled` para
+  solicitudes; solo se pueden rechazar. → ¿Hace falta?
+- **Asignación de empleados.** Quedó fuera de alcance: no se registra quién
+  acepta ni quién atiende la solicitud.
+- **Cobro de servicios.** Algunas solicitudes podrían generar un cargo (tour,
+  transporte), pero hoy no se crean cargos. → ¿Se integra con el folio en un
+  ticket futuro? El campo `charge_id` ya existe.
+- **Edición de la solicitud.** No se puede modificar la descripción después
+  de creada. → ¿Hace falta?
+
+### Inventario
+- **Significado de `lowStock=false`.** Hoy devuelve los artículos con stock
+  por encima del mínimo. El ticket solo definía `lowStock=true`. → ¿Se
+  confirma?
+- **Stock igual al mínimo.** Un artículo con `currentQuantity` igual a
+  `minimumQuantity` se considera stock bajo, como pide el ticket (`<=`).
+- **CRUD de artículos.** No existe; los artículos solo se pueden crear por
+  SQL. → ¿Se hace un ticket para crearlos y editarlos (incluido desactivarlos
+  y cambiar el mínimo)?
+- **Inventario y producto.** Los dos stocks son independientes: un artículo
+  vinculado a un `Product` no sincroniza `Product.stockQuantity`, y Room
+  Service trabaja con el stock del producto. → ¿Cuál es la fuente de verdad?
+  ¿Se sincronizan en el futuro?
+- **Ajustes de inventario.** No hay razón para un ajuste positivo por conteo
+  físico (solo `purchase`/`restock` para entradas). Un faltante se registra
+  como `shrinkage`. → ¿Hace falta una razón de ajuste? Requeriría una
+  migración.
+- **Corrección de errores.** Un movimiento mal registrado no se puede anular;
+  hay que compensarlo con otro movimiento. → ¿Se confirma?
