@@ -7,7 +7,7 @@ documento.
 
 Todas las rutas cuelgan de `/api/v1`.
 
-Al final, la sección **15. Decisiones por confirmar** lista los comportamientos
+Al final, la sección **17. Decisiones por confirmar** lista los comportamientos
 que hoy funcionan de una forma pero que el equipo debería validar.
 
 ---
@@ -29,9 +29,12 @@ que hoy funcionan de una forma pero que el equipo debería validar.
 - **Referencias en el body:** cuando un ID enviado en el body no existe (por
   ejemplo `roomTypeId` al crear una habitación), la respuesta es `400`, no
   `404`. El `404` se reserva para el recurso de la ruta.
+  **Excepción actual:** Room Service responde `404` cuando no existen el
+  `bookingId` o el `productId` del body (ver sección 16).
 - **Dinero:** siempre en **centavos enteros** (`Long`). La moneda es siempre
   `GTQ`. En pagos, depósitos y caja, los montos con decimales (`1.5`) se
-  **rechazan** con `400` en lugar de truncarse.
+  **rechazan** con `400` en lugar de truncarse. Lo mismo aplica a las
+  cantidades de los movimientos de inventario.
 - **Campos controlados por el servidor:** IDs, estados iniciales, moneda,
   timestamps (`createdAt`, `updatedAt`, `paidAt`, `openedAt`, etc.) y usuario
   responsable los asigna el backend. Si el cliente los envía en el body, se
@@ -42,7 +45,8 @@ que hoy funcionan de una forma pero que el equipo debería validar.
   request/response.
 - **Transacciones:** las operaciones que modifican datos son transaccionales.
   Las que pueden sufrir concurrencia (check-in, folio, pagos, reembolsos,
-  caja) usan bloqueo pesimista de fila.
+  caja, conserjería, inventario, housekeeping y estados de Room Service)
+  usan bloqueo pesimista de fila.
 
 ---
 
@@ -347,9 +351,65 @@ que hoy funcionan de una forma pero que el equipo debería validar.
   Service, Caja ni Folio.
 - **Historial:** los movimientos nunca se borran ni se editan.
 
+## 15. Housekeeping (`/housekeeping/rooms`)
+
+- **Listado (`GET`):** todas las habitaciones ordenadas por número, con
+  filtro opcional `housekeepingStatus` (`dirty`, `cleaning`, `clean`,
+  `inspected`). Un valor inválido → `400`.
+- **Detalle (`GET /{roomId}`):** si la habitación no existe → `404`.
+- **Flujo de limpieza:** cada acción exige un estado de origen exacto:
+  - `POST /{roomId}/start`: `dirty → cleaning`
+  - `POST /{roomId}/complete`: `cleaning → clean`
+  - `POST /{roomId}/inspect`: `clean → inspected`
+  - Si la habitación no está en el estado de origen → `400`.
+- El flujo es solo de avance: no hay acción para volver a marcar una
+  habitación como `dirty` (ver Decisiones por confirmar).
+- Solo cambia `housekeepingStatus`; el estado operativo (`status`:
+  `available`, `occupied`…) no se toca.
+- Relación con el check-in: una habitación solo admite check-in si está
+  `clean` o `inspected` (sección 7).
+- Cada acción bloquea la habitación, así que dos acciones simultáneas no
+  pueden saltarse el flujo.
+
+## 16. Room Service (`/room-service`)
+
+### Productos (`GET /room-service/products`)
+- Solo lista productos **activos**, ordenados por nombre, con filtro
+  opcional `category` (`minibar`, `shop`, `food_and_beverage`, `other`).
+
+### Pedidos (`/room-service/orders`)
+- **Listado (`GET`):** filtros opcionales `bookingId` y `status`. Orden: del
+  más reciente al más antiguo.
+- **Detalle (`GET /{orderId}`):** incluye las líneas del pedido. Si no
+  existe → `404`.
+- **Creación (`POST`):**
+  - `bookingId` y al menos un ítem son obligatorios. `notes` es opcional.
+  - Cada ítem requiere `productId` y `quantity` (> 0).
+  - La reserva y los productos deben existir, y los productos deben estar
+    activos. Si no → **`404`** (distinto de la convención del resto de la
+    API, ver sección 0).
+  - Se crea con `status = pending` y `currency = GTQ`. La habitación y el
+    huésped se toman de la reserva, y el backend controla los timestamps.
+  - **Precio congelado:** cada línea guarda el precio del producto al
+    momento del pedido (`unitPriceCents`), así que un cambio de precio
+    posterior no afecta pedidos ya creados.
+  - **Totales calculados en backend:** `lineTotalCents = quantity ×
+    unitPriceCents` y `totalCents` = suma de las líneas.
+- **Flujo de estados (`POST /{orderId}/status`):**
+  - `pending → accepted | rejected | cancelled`
+  - `accepted → preparing | cancelled`
+  - `preparing → ready | cancelled`
+  - `ready → on_the_way | cancelled`
+  - `on_the_way → delivered | cancelled`
+  - `delivered`, `rejected` y `cancelled` son **terminales** (`400`).
+  - Repetir el estado actual o hacer cualquier otra transición → `400`.
+  - El cambio de estado bloquea el pedido.
+- **Sin integraciones:** crear o entregar un pedido **no** genera cargos en
+  el folio y **no** descuenta `Product.stockQuantity` ni el inventario.
+
 ---
 
-## 15. Decisiones por confirmar
+## 17. Decisiones por confirmar
 
 Comportamientos que **hoy funcionan así en el código** pero que no fueron
 definidos explícitamente por el equipo, o que quedaron fuera de los tickets.
@@ -369,7 +429,9 @@ decida, se mueve la regla a su módulo y se borra de aquí.
 ### Catálogo (habitaciones, tipos, tarifas)
 - **Cambio manual del estado de una habitación.** `PUT /rooms/{id}` permite
   cambiar `status` y `housekeepingStatus` libremente; por ejemplo, poner
-  `available` una habitación ocupada. → ¿Se restringen las transiciones?
+  `available` una habitación ocupada o pasar de `dirty` a `inspected`,
+  saltándose el flujo de Housekeeping (sección 15). → ¿Se restringen las
+  transiciones o se quita `housekeepingStatus` de ese endpoint?
 - **Tarifas que se cruzan.** Se pueden crear varias tarifas del mismo tipo de
   habitación con vigencias que se cruzan. → ¿Se permite?
 - **Reducir la capacidad de un tipo.** Se puede bajar `capacity` aunque haya
@@ -394,8 +456,9 @@ decida, se mueve la regla a su módulo y se borra de aquí.
   bloquea o se limita?
 - **Check-in anticipado o tardío.** Solo se permite dentro de la estadía
   (`checkIn ≤ hoy < checkOut`). → ¿Se permite con alguna tolerancia?
-- **Check-out.** No está implementado: la habitación no se libera, el folio
-  no se cierra y la reserva no pasa a `checked_out`.
+- **Check-out.** No está implementado: la habitación no se libera ni pasa a
+  `dirty` para Housekeeping, el folio no se cierra y la reserva no pasa a
+  `checked_out`.
 
 ### Acompañantes
 - **Cambios después del check-in.** Se pueden agregar, editar o borrar
@@ -460,7 +523,7 @@ decida, se mueve la regla a su módulo y se borra de aquí.
   y cambiar el mínimo)?
 - **Inventario y producto.** Los dos stocks son independientes: un artículo
   vinculado a un `Product` no sincroniza `Product.stockQuantity`, y Room
-  Service trabaja con el stock del producto. → ¿Cuál es la fuente de verdad?
+  Service no descuenta ninguno de los dos. → ¿Cuál es la fuente de verdad?
   ¿Se sincronizan en el futuro?
 - **Ajustes de inventario.** No hay razón para un ajuste positivo por conteo
   físico (solo `purchase`/`restock` para entradas). Un faltante se registra
@@ -468,3 +531,32 @@ decida, se mueve la regla a su módulo y se borra de aquí.
   migración.
 - **Corrección de errores.** Un movimiento mal registrado no se puede anular;
   hay que compensarlo con otro movimiento. → ¿Se confirma?
+
+### Housekeeping
+- **Volver a `dirty`.** No hay acción para marcar una habitación como
+  sucia: hoy solo se puede con `PUT /rooms/{id}`. Lo natural sería que el
+  check-out (aún no implementado) la deje en `dirty`. → ¿Se agrega una
+  acción o se hace en el check-out?
+- **Estado operativo.** Se puede limpiar o inspeccionar una habitación en
+  cualquier `status` (`occupied`, `maintenance`, `out_of_service`). → ¿Se
+  restringe?
+- **Responsable.** No se registra quién limpió o inspeccionó la habitación.
+
+### Room Service
+- **404 en referencias del body.** Si no existen el `bookingId` o un
+  `productId` del body, responde `404`, mientras el resto de la API responde
+  `400`. → ¿Se unifica?
+- **Estado de la reserva.** Se pueden crear pedidos para reservas
+  `pending`, `cancelled`, `no_show` o `checked_out`. → ¿Se limita a
+  `checked_in`?
+- **Cargo al folio.** Entregar un pedido no genera un cargo. El campo
+  `charge_id` ya existe en `orders`. → ¿Se integra con el folio?
+- **Stock.** No se valida disponibilidad ni se descuenta stock (ni de
+  `Product` ni de inventario). → ¿Se integra?
+- **Cantidades decimales.** `quantity` no usa el deserializador estricto
+  de enteros, así que un `1.5` se trunca a `1` en lugar de rechazarse
+  (inventario, pagos y caja sí lo rechazan). → ¿Se unifica?
+- **Cancelación tardía.** Se puede cancelar hasta `on_the_way` (ya en
+  camino). → ¿Se confirma?
+- **Productos repetidos.** El mismo producto puede aparecer en varias
+  líneas del mismo pedido; no se agrupan.
