@@ -14,6 +14,8 @@ public record StayoverCleaningResponse(
 		String description,
 		String notes,
 		String responsibleUserEmail,
+		String startedByUserEmail,
+		String completedByUserEmail,
 		OffsetDateTime requestedAt,
 		OffsetDateTime startedAt,
 		OffsetDateTime completedAt,

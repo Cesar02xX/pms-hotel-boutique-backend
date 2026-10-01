@@ -16,6 +16,7 @@ public record HousekeepingRoomResponse(
 		String notes,
 		String cleaningUserEmail,
 		OffsetDateTime cleaningStartedAt,
+		String cleaningCompletedByUserEmail,
 		OffsetDateTime cleaningCompletedAt,
 		String inspectorUserEmail,
 		OffsetDateTime inspectedAt,

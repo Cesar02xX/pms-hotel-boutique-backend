@@ -63,6 +63,10 @@ public class Room {
 	private OffsetDateTime cleaningCompletedAt;
 
 	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "cleaning_completed_by_user_id")
+	private User cleaningCompletedByUser;
+
+	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "inspector_user_id")
 	private User inspectorUser;
 

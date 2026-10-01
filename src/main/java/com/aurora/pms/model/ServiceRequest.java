@@ -66,6 +66,14 @@ public class ServiceRequest {
 	@JoinColumn(name = "responsible_user_id")
 	private User responsibleUser;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "started_by_user_id")
+	private User startedByUser;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "completed_by_user_id")
+	private User completedByUser;
+
 	@Column(name = "requested_at", nullable = false)
 	private OffsetDateTime requestedAt;
 

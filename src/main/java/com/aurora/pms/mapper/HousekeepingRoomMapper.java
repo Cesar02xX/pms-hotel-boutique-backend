@@ -19,6 +19,7 @@ public class HousekeepingRoomMapper {
 				room.getNotes(),
 				room.getCleaningUser() != null ? room.getCleaningUser().getEmail() : null,
 				room.getCleaningStartedAt(),
+				room.getCleaningCompletedByUser() != null ? room.getCleaningCompletedByUser().getEmail() : null,
 				room.getCleaningCompletedAt(),
 				room.getInspectorUser() != null ? room.getInspectorUser().getEmail() : null,
 				room.getInspectedAt(),

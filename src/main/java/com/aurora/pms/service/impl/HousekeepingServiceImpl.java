@@ -156,7 +156,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		}
 		OffsetDateTime now = OffsetDateTime.now();
 		request.setStatus(ServiceRequestStatus.in_progress);
-		request.setResponsibleUser(findActor(actorEmail));
+		request.setStartedByUser(findActor(actorEmail));
 		request.setStartedAt(now);
 		request.setUpdatedAt(now);
 		return toStayoverResponse(serviceRequestRepository.save(request));
@@ -171,7 +171,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		}
 		OffsetDateTime now = OffsetDateTime.now();
 		request.setStatus(ServiceRequestStatus.completed);
-		request.setResponsibleUser(findActor(actorEmail));
+		request.setCompletedByUser(findActor(actorEmail));
 		request.setCompletedAt(now);
 		request.setUpdatedAt(now);
 		return toStayoverResponse(serviceRequestRepository.save(request));
@@ -196,12 +196,13 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		if (next == RoomHousekeepingStatus.cleaning) {
 			room.setCleaningUser(actor);
 			room.setCleaningStartedAt(now);
+			room.setCleaningCompletedByUser(null);
 			room.setCleaningCompletedAt(null);
 			room.setInspectorUser(null);
 			room.setInspectedAt(null);
 		}
 		if (next == RoomHousekeepingStatus.clean) {
-			room.setCleaningUser(actor);
+			room.setCleaningCompletedByUser(actor);
 			room.setCleaningCompletedAt(now);
 			room.setInspectorUser(null);
 			room.setInspectedAt(null);
@@ -240,6 +241,8 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 				request.getDescription(),
 				request.getNotes(),
 				request.getResponsibleUser() != null ? request.getResponsibleUser().getEmail() : null,
+				request.getStartedByUser() != null ? request.getStartedByUser().getEmail() : null,
+				request.getCompletedByUser() != null ? request.getCompletedByUser().getEmail() : null,
 				request.getRequestedAt(),
 				request.getStartedAt(),
 				request.getCompletedAt(),
