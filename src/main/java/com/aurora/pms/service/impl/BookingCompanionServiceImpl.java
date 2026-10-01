@@ -1,7 +1,9 @@
 package com.aurora.pms.service.impl;
 
 import java.time.OffsetDateTime;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -11,11 +13,13 @@ import com.aurora.pms.dto.request.CreateBookingCompanionRequest;
 import com.aurora.pms.dto.request.UpdateBookingCompanionRequest;
 import com.aurora.pms.dto.response.BookingCompanionResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.BookingCompanionMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.BookingCompanion;
 import com.aurora.pms.model.Guest;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.GuestType;
 import com.aurora.pms.repository.BookingCompanionRepository;
 import com.aurora.pms.repository.BookingRepository;
@@ -23,6 +27,13 @@ import com.aurora.pms.service.BookingCompanionService;
 
 @Service
 public class BookingCompanionServiceImpl implements BookingCompanionService {
+
+	private static final Set<BookingStatus> BLOCKED_MANAGEMENT_STATUSES = EnumSet.of(
+			BookingStatus.checked_in,
+			BookingStatus.checked_out,
+			BookingStatus.cancelled,
+			BookingStatus.no_show
+	);
 
 	private final BookingRepository bookingRepository;
 	private final BookingCompanionRepository companionRepository;
@@ -51,6 +62,7 @@ public class BookingCompanionServiceImpl implements BookingCompanionService {
 	@Transactional
 	public BookingCompanionResponse create(UUID bookingId, CreateBookingCompanionRequest request) {
 		Booking booking = getBooking(bookingId);
+		validateBookingAllowsCompanionManagement(booking);
 		validateNotPrimaryGuest(booking, request.firstName(), request.lastName(), request.documentNumber());
 
 		BookingCompanion companion = companionMapper.toEntity(request, booking);
@@ -68,6 +80,7 @@ public class BookingCompanionServiceImpl implements BookingCompanionService {
 	public BookingCompanionResponse update(UUID bookingId, UUID companionId, UpdateBookingCompanionRequest request) {
 		Booking booking = getBooking(bookingId);
 		BookingCompanion companion = getCompanionForBooking(bookingId, companionId);
+		validateBookingAllowsCompanionManagement(booking);
 		validateNotPrimaryGuest(booking, request.firstName(), request.lastName(), request.documentNumber());
 
 		companionMapper.applyUpdate(companion, request);
@@ -80,8 +93,9 @@ public class BookingCompanionServiceImpl implements BookingCompanionService {
 	@Override
 	@Transactional
 	public void delete(UUID bookingId, UUID companionId) {
-		ensureBookingExists(bookingId);
+		Booking booking = getBooking(bookingId);
 		BookingCompanion companion = getCompanionForBooking(bookingId, companionId);
+		validateBookingAllowsCompanionManagement(booking);
 		companionRepository.delete(companion);
 	}
 
@@ -99,6 +113,13 @@ public class BookingCompanionServiceImpl implements BookingCompanionService {
 	private BookingCompanion getCompanionForBooking(UUID bookingId, UUID companionId) {
 		return companionRepository.findByIdAndBookingId(companionId, bookingId)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking companion not found: " + companionId));
+	}
+
+	private void validateBookingAllowsCompanionManagement(Booking booking) {
+		if (BLOCKED_MANAGEMENT_STATUSES.contains(booking.getStatus())) {
+			throw new ConflictException("Booking companions cannot be managed when booking status is "
+					+ booking.getStatus());
+		}
 	}
 
 	private void validateComposition(Booking booking, BookingCompanion candidate, UUID candidateId) {

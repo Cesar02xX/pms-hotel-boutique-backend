@@ -60,6 +60,8 @@ public class BookingCompanionController {
 			@ApiResponse(responseCode = "201", description = "Companion created"),
 			@ApiResponse(responseCode = "400", description = "Invalid request or booking composition",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "409", description = "Booking status does not allow companion management",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "Booking not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
 	})
@@ -76,6 +78,8 @@ public class BookingCompanionController {
 			@ApiResponse(responseCode = "200", description = "Companion updated"),
 			@ApiResponse(responseCode = "400", description = "Invalid request or booking composition",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "409", description = "Booking status does not allow companion management",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "Booking or companion not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
 	})
@@ -91,6 +95,8 @@ public class BookingCompanionController {
 	@Operation(summary = "Delete a booking companion")
 	@ApiResponses({
 			@ApiResponse(responseCode = "204", description = "Companion deleted"),
+			@ApiResponse(responseCode = "409", description = "Booking status does not allow companion management",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "Booking or companion not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
 	})

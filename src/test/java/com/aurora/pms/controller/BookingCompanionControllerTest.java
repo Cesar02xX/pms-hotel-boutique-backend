@@ -14,6 +14,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
@@ -23,6 +25,7 @@ import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.GuestType;
 import com.jayway.jsonpath.JsonPath;
 
@@ -104,6 +107,56 @@ class BookingCompanionControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isNoContent());
 
 		assertThat(bookingCompanionRepository.findById(companion.getId())).isEmpty();
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = BookingStatus.class, names = {"checked_in", "checked_out", "cancelled", "no_show"})
+	void createCompanionBlockedByBookingStatusReturnsConflict(BookingStatus bookingStatus) throws Exception {
+		Booking booking = createBookingFixture(3, 2, 1);
+		booking.setStatus(bookingStatus);
+		booking = bookingRepository.save(booking);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/companions", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(validAdultBody()))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = BookingStatus.class, names = {"checked_in", "checked_out", "cancelled", "no_show"})
+	void updateCompanionBlockedByBookingStatusReturnsConflict(BookingStatus bookingStatus) throws Exception {
+		Booking booking = createBookingFixture(3, 2, 1);
+		BookingCompanion companion = createBookingCompanion(booking, GuestType.adult);
+		booking.setStatus(bookingStatus);
+		booking = bookingRepository.save(booking);
+
+		mockMvc.perform(put("/api/v1/bookings/{bookingId}/companions/{companionId}",
+						booking.getId(), companion.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Carlos", "lastName": "Perez", "guestType": "adult"}
+								"""))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@ParameterizedTest
+	@EnumSource(value = BookingStatus.class, names = {"checked_in", "checked_out", "cancelled", "no_show"})
+	void deleteCompanionBlockedByBookingStatusReturnsConflict(BookingStatus bookingStatus) throws Exception {
+		Booking booking = createBookingFixture(3, 2, 1);
+		BookingCompanion companion = createBookingCompanion(booking, GuestType.adult);
+		booking.setStatus(bookingStatus);
+		booking = bookingRepository.save(booking);
+
+		mockMvc.perform(delete("/api/v1/bookings/{bookingId}/companions/{companionId}",
+						booking.getId(), companion.getId()).with(staffUser()))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+
+		assertThat(bookingCompanionRepository.findById(companion.getId())).isPresent();
 	}
 
 	@Test
