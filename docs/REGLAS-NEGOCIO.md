@@ -1,4 +1,4 @@
-# Reglas de negocio — PMS Hotel Boutique Aurora (backend)
+﻿# Reglas de negocio — PMS Hotel Boutique Aurora (backend)
 
 Resumen de las reglas de negocio **implementadas actualmente** en el backend,
 separadas por módulo. Cada regla sale del código (services, DTOs y queries),
@@ -289,44 +289,52 @@ implementadas en Java.
 
 ## 12. Caja (`/cash-sessions`)
 
-- **Una sola caja abierta a la vez en todo el hotel.** El modelo no distingue
-  cajas ni terminales. Una sesión puede cerrarla un usuario distinto del que
-  la abrió.
+- **Sesiones por usuario:** cada usuario puede tener como maximo una sesion de
+  caja abierta. Otros usuarios pueden tener sus propias sesiones abiertas en
+  paralelo.
 - **Apertura (`POST /open`):**
-  - `openingBalanceCents` es obligatorio (≥ 0, entero). `notes` es opcional.
-  - Si ya hay una sesión abierta → `400`.
+  - `openingBalanceCents` es obligatorio (>= 0, entero). `notes` es opcional.
+  - Si el usuario autenticado ya tiene una sesion abierta -> `400`.
   - El usuario autenticado debe existir en la tabla `users`, porque queda
-    como `openedByUser`; si no existe → `401`.
+    como `openedByUser`; si no existe -> `401`.
   - Se crea con `status = open` y `currency = GTQ`.
-  - Las aperturas simultáneas se serializan con un bloqueo de PostgreSQL, así
-    que nunca quedan dos sesiones abiertas.
-- **Sesión actual (`GET /current`):** devuelve la sesión abierta con sus
-  totales calculados en vivo. Si no hay ninguna → `404`.
+  - Las aperturas simultaneas del mismo usuario se serializan con un bloqueo
+    de PostgreSQL y un indice unico parcial, asi que nunca quedan dos
+    sesiones abiertas para el mismo usuario.
+- **Sesion actual (`GET /current`):** devuelve la sesion abierta del usuario
+  autenticado con sus totales calculados en vivo. Si ese usuario no tiene
+  caja abierta -> `404`.
 - **Movimientos (`POST /{id}/movements`):**
-  - Campos obligatorios: `type` (`income`/`expense`), `concept` (no vacío,
-    máx. 255) y `amountCents` (> 0, entero).
-  - No se registran en una sesión cerrada (`400`).
+  - Campos obligatorios: `type` (`income`/`expense`), `concept` (no vacio,
+    max. 255) y `amountCents` (> 0, entero).
+  - No se registran en una sesion cerrada (`400`).
   - **Un egreso no puede superar el efectivo disponible** (apertura +
-    ingresos − egresos). La caja nunca queda en negativo.
+    ingresos - egresos). La caja nunca queda en negativo.
   - Se guarda el usuario responsable y `occurredAt` es el momento del
     registro.
-  - Son movimientos manuales: no hay integración automática con pagos, así
-    que `paymentId` queda en `null`.
+  - Los movimientos manuales no se vinculan a pagos, asi que `paymentId`
+    queda en `null`.
 - **Listado de movimientos (`GET /{id}/movements`):** ordenado
-  cronológicamente. Si la sesión no existe → `404`.
+  cronologicamente. Si la sesion no existe -> `404`.
 - **Cierre (`POST /{id}/close`):**
-  - `countedBalanceCents` es obligatorio (≥ 0, entero): lo contado
-    físicamente.
-  - Solo se cierra una sesión abierta; cerrar dos veces → `400`.
-  - El backend calcula y guarda los totales; los que envíe el cliente se
+  - `countedBalanceCents` es obligatorio (>= 0, entero): lo contado
+    fisicamente.
+  - Solo se cierra una sesion abierta; cerrar dos veces -> `400`.
+  - El backend calcula y guarda los totales; los que envie el cliente se
     ignoran:
-    - `expectedBalanceCents = apertura + ingresos − egresos`
-    - `differenceCents = contado − esperado` (negativo = faltante,
+    - `expectedBalanceCents = apertura + ingresos - egresos`
+    - `differenceCents = contado - esperado` (negativo = faltante,
       positivo = sobrante)
   - Registra `closedByUser` y `closedAt`. Las notas del cierre se agregan a
     las de apertura.
-- Cerrar y registrar movimientos bloquea la sesión, así que un movimiento no
-  puede entrar mientras la sesión se está cerrando.
+- Cerrar y registrar movimientos bloquea la sesion, asi que un movimiento no
+  puede entrar mientras la sesion se esta cerrando.
+- **Integracion con pagos:** un pago con `method = cash` crea automaticamente
+  un movimiento `income` en la caja abierta del usuario que procesa el pago.
+  Si el usuario no tiene caja abierta, el pago se rechaza y no queda
+  parcialmente registrado. Pagos con tarjeta, transferencia u online no crean
+  movimientos de caja. `cash_movements.payment_id` es unico para impedir
+  duplicidades.
 
 ---
 
@@ -377,69 +385,91 @@ implementadas en Java.
 
 ## 14. Inventario (`/inventory/items`)
 
-- **Solo existencias.** El módulo consulta artículos y registra entradas y
-  salidas sobre artículos que ya existen. No crea, edita ni elimina
+- **Fuente oficial:** `InventoryItem.currentQuantity` es la fuente oficial de
+  existencias. `Product.stockQuantity` no se actualiza desde inventario ni se
+  usa para calcular stock disponible.
+- **Solo existencias.** El modulo consulta articulos y registra entradas,
+  salidas y ajustes sobre articulos que ya existen. No crea, edita ni elimina
   `InventoryItem`.
 - **Listado (`GET`):** todos los filtros son opcionales y se combinan:
   - `active` (`true`/`false`);
-  - `category`, sin distinguir mayúsculas ni espacios al inicio o al final;
-  - `lowStock=true` devuelve los artículos con `currentQuantity <=
+  - `category`, sin distinguir mayusculas ni espacios al inicio o al final;
+  - `lowStock=true` devuelve los articulos con `currentQuantity <=
     minimumQuantity`, y `lowStock=false` el resto.
 
-  Un valor inválido en `active` o `lowStock` → `400`. Orden: por nombre y
+  Un valor invalido en `active` o `lowStock` -> `400`. Orden: por nombre y
   luego por SKU.
-- **`lowStock` en la respuesta:** cada artículo incluye `lowStock`,
+- **`lowStock` en la respuesta:** cada articulo incluye `lowStock`,
   calculado en el backend con la misma regla (`currentQuantity <=
   minimumQuantity`).
 - **Detalle y movimientos (`GET /{itemId}`, `GET /{itemId}/movements`):** los
-  artículos inactivos siguen siendo consultables. Los movimientos se listan
-  en orden cronológico. Si el artículo no existe → `404`.
+  articulos inactivos siguen siendo consultables. Los movimientos se listan
+  en orden cronologico. Si el articulo no existe -> `404`.
 - **Registrar movimiento (`POST /{itemId}/movements`):**
   - `type` (`in`/`out`), `reason` y `quantity` (entero > 0) son obligatorios.
     `notes` es opcional.
   - Las cantidades con decimales, en texto o fuera del rango de un entero se
     rechazan (`400`) en lugar de truncarse.
-  - El artículo debe existir (`404`) y estar **activo** (`400`).
-  - **Combinaciones válidas de tipo y razón:**
-    - `in`: `purchase`, `restock`
-    - `out`: `consumption`, `sale`, `shrinkage`
-    - cualquier otra combinación → `400`.
+  - El articulo debe existir (`404`) y estar **activo** (`400`).
+  - **Combinaciones validas de tipo y razon:**
+    - `in`: `purchase`, `restock`, `physical_count`
+    - `out`: `consumption`, `sale`, `shrinkage`, `physical_count`
+    - cualquier otra combinacion -> `400`.
+  - `physical_count` representa un ajuste trazable por conteo fisico: si el
+    conteo real es mayor se registra como `in`, y si es menor como `out`.
   - `in` suma y `out` resta a `currentQuantity`.
-  - **El stock nunca queda negativo:** una salida mayor que la existencia →
+  - **El stock nunca queda negativo:** una salida mayor que la existencia ->
     `400` (`Insufficient stock`). Se permite dejar el stock exactamente en 0.
-  - Una entrada que desborde el máximo de un entero → `400`.
-  - El backend controla el artículo (por la URL), `occurredAt`, `createdAt` y
+  - Una entrada que desborde el maximo de un entero -> `400`.
+  - El backend controla el articulo (por la URL), `occurredAt`, `createdAt` y
     `responsibleUser`, que se toma del JWT cuando el usuario existe en `users`
     y queda `null` si no.
-- **Atomicidad y concurrencia:** el movimiento y la actualización de
-  `currentQuantity` ocurren en la misma transacción. El artículo se bloquea
-  mientras se registra el movimiento, así que dos salidas simultáneas no
-  pueden vender de más ni perder una resta.
-- **Sin integraciones:** no se modifica `Product.stockQuantity` aunque el
-  artículo esté vinculado a un producto. No hay integración con Room
-  Service, Caja ni Folio.
-- **Historial:** los movimientos nunca se borran ni se editan.
+- **Atomicidad y concurrencia:** el movimiento y la actualizacion de
+  `currentQuantity` ocurren en la misma transaccion. El articulo se bloquea
+  mientras se registra el movimiento, asi que dos salidas simultaneas no
+  pueden vender de mas ni perder una resta.
+- **Sin integraciones:** no hay integracion con Room Service, Caja ni Folio.
+- **Historial:** los movimientos nunca se borran ni se editan. Los errores se
+  corrigen con movimientos compensatorios.
 
 ## 15. Housekeeping (`/housekeeping/rooms`)
 
-- **Listado (`GET`):** todas las habitaciones ordenadas por número, con
+- **Listado (`GET`):** todas las habitaciones ordenadas por numero, con
   filtro opcional `housekeepingStatus` (`dirty`, `cleaning`, `clean`,
-  `inspected`). Un valor inválido → `400`.
-- **Detalle (`GET /{roomId}`):** si la habitación no existe → `404`.
-- **Flujo de limpieza:** cada acción exige un estado de origen exacto:
-  - `POST /{roomId}/start`: `dirty → cleaning`
-  - `POST /{roomId}/complete`: `cleaning → clean`
-  - `POST /{roomId}/inspect`: `clean → inspected`
-  - Si la habitación no está en el estado de origen → `400`.
-- El flujo operativo normal es de avance (`dirty → cleaning → clean →
-  inspected`). El checkout es la operación que vuelve a marcar automáticamente
-  una habitación como `dirty`.
+  `inspected`). Un valor invalido -> `400`.
+- **Detalle (`GET /{roomId}`):** si la habitacion no existe -> `404`.
+- **Flujo de limpieza de turnover:** cada accion exige un estado de origen
+  exacto:
+  - `POST /{roomId}/start`: `dirty -> cleaning`
+  - `POST /{roomId}/complete`: `cleaning -> clean`
+  - `POST /{roomId}/inspect`: `clean -> inspected`
+  - Si la habitacion no esta en el estado de origen -> `400`.
+- El flujo operativo normal es de avance (`dirty -> cleaning -> clean ->
+  inspected`). El checkout es la operacion que vuelve a marcar automaticamente
+  una habitacion como `dirty`.
+- Cada transicion de turnover registra trazabilidad en la habitacion:
+  `cleaningUser` y `cleaningStartedAt` para quien inicia, `cleaningCompletedByUser`
+  y `cleaningCompletedAt` para quien completa, e `inspectorUser`/`inspectedAt`
+  para quien inspecciona. Las personas pueden ser distintas.
 - Solo cambia `housekeepingStatus`; el estado operativo (`status`:
-  `available`, `occupied`…) no se toca.
-- Relación con el check-in: una habitación solo admite check-in si está
-  `clean` o `inspected` (sección 7).
-- Cada acción bloquea la habitación, así que dos acciones simultáneas no
+  `available`, `occupied`, etc.) no se toca.
+- Relacion con el check-in: una habitacion solo admite check-in si esta
+  `clean` o `inspected` (seccion 7).
+- Cada accion bloquea la habitacion, asi que dos acciones simultaneas no
   pueden saltarse el flujo.
+- **Limpieza durante estancia:** se maneja como una solicitud independiente de
+  Housekeeping sobre `ServiceRequest` con `type = housekeeping`.
+  - `POST /{roomId}/stayover-cleanings` crea una tarea `pending` para una
+    reserva `checked_in` que pertenezca a esa habitacion.
+  - `GET /stayover-cleanings?bookingId=...` lista las tareas de una reserva.
+  - `POST /stayover-cleanings/{requestId}/start`: `pending -> in_progress`.
+  - `POST /stayover-cleanings/{requestId}/complete`: `in_progress -> completed`.
+  - `responsibleUser` conserva al responsable inicial de la tarea.
+  - `startedByUser`/`startedAt` registran quien inicia y
+    `completedByUser`/`completedAt` quien completa, ademas de `createdAt` y
+    `updatedAt`.
+  - No cambia `Room.status` ni `Room.housekeepingStatus`: una habitacion
+    `occupied` continua ocupada y no se libera por completar esta tarea.
 
 ## 16. Room Service (`/room-service`)
 
@@ -504,32 +534,6 @@ el estado actual, se deja explícita la diferencia entre:
     independientes. No se debe eliminar ni modificar el pago original y debe
     mantenerse trazabilidad completa.
 
-### Caja
-- **Sesiones por usuario.**
-  - Actual: hay una sola caja abierta en todo el hotel y puede cerrarla un
-    usuario distinto del que la abrió.
-  - Acordado: cambiar a una sesión de caja por usuario/recepcionista. Cada
-    usuario autorizado podrá tener su propia sesión abierta y debe mantenerse
-    trazabilidad del usuario responsable.
-- **Caja actual inexistente.**
-  - Actual: `GET /cash-sessions/current` responde `404` si no hay caja abierta.
-  - Acordado: si se consulta la caja actual y el usuario no tiene una abierta,
-    mantener `404 Not Found`.
-- **Egresos mayores que efectivo disponible.**
-  - Actual: se rechazan para que la caja nunca quede en negativo.
-  - Acordado: mantener la regla; no permitir egresos superiores al efectivo
-    disponible.
-- **Integración con pagos.**
-  - Actual: los pagos no generan movimientos automáticos de caja.
-  - Acordado: los pagos en efectivo deben generar automáticamente un movimiento
-    de entrada en la caja del usuario que recibió el pago. Pagos con tarjeta u
-    otros medios electrónicos no aumentan el efectivo físico de la caja.
-- **Reapertura y correcciones.**
-  - Actual: una caja cerrada no puede reabrirse y los movimientos históricos no
-    se editan ni anulan.
-  - Acordado: una caja cerrada no puede reabrirse. Correcciones posteriores
-    deben realizarse mediante ajustes o movimientos trazables.
-
 ### Conserjería
 - **Cobro de servicios.**
   - Actual: el módulo no crea cargos ni toca el folio; `chargeId` queda en
@@ -539,53 +543,10 @@ el estado actual, se deja explícita la diferencia entre:
     cuando corresponda confirmar o completar realmente el servicio, no
     simplemente al crear la solicitud.
 ### Inventario
-- **Fuente oficial de existencias.**
-  - Actual: `InventoryItem.currentQuantity` y `Product.stockQuantity` son
-    independientes; Room Service no descuenta ninguno de los dos.
-  - Acordado: `InventoryItem.currentQuantity` será la fuente oficial de
-    existencias. Evitar mantener dos cantidades independientes entre `Product`
-    e `InventoryItem`.
-- **Stock bajo.**
-  - Actual: `lowStock` ya se calcula como `currentQuantity <=
-    minimumQuantity`; `lowStock=false` devuelve los artículos por encima del
-    mínimo.
-  - Acordado: mantener stock bajo como `currentQuantity <= minimumQuantity`.
-    Si la existencia es exactamente igual al mínimo, ya se considera stock
-    bajo.
-- **Conteo físico y ajustes.**
-  - Actual: no existe razón específica de ajuste positivo por conteo físico; un
-    faltante se registra como `shrinkage`.
-  - Acordado: implementar movimientos de ajuste de inventario. No modificar
-    directamente `currentQuantity` sin trazabilidad. Los ajustes deben
-    registrar usuario, fecha y motivo.
-- **Movimientos históricos.**
-  - Actual: los movimientos nunca se borran ni se editan.
-  - Acordado: no editar ni eliminar movimientos históricos. Los errores deben
-    corregirse mediante movimientos compensatorios.
-- **CRUD de artículos.**
-  - Actual: no existe; los artículos solo se pueden crear por SQL.
-  - Acordado: queda fuera de estas decisiones y requerirá ticket específico si
-    se necesita administrar artículos desde la API.
-
-### Housekeeping
-- **Limpieza posterior al checkout.**
-  - Actual: el checkout deja la habitación `available + dirty`; luego
-    Housekeeping avanza `dirty → cleaning → clean → inspected`.
-  - Acordado: mantener separado el checkout de la limpieza. No permitir saltarse
-    estados mediante el CRUD normal.
-- **Limpieza durante la estancia.**
-  - Actual: Housekeeping opera sobre el `housekeepingStatus` de la habitación;
-    no existe una tarea independiente de limpieza durante estancia.
-  - Acordado: una habitación `occupied` también puede recibir limpieza si el
-    huésped la solicita. Esta limpieza debe manejarse como tarea/solicitud de
-    Housekeeping independiente, por ejemplo `pending → in_progress →
-    completed`. La habitación continúa `occupied`, no se libera y no debe
-    confundirse con la limpieza obligatoria posterior al checkout.
-- **Trazabilidad.**
-  - Actual: no se registra quién limpió o inspeccionó.
-  - Acordado: registrar empleado responsable, inicio y finalización, y quién
-    realiza la inspección cuando corresponda. La persona que limpia y la
-    persona que inspecciona pueden ser diferentes.
+- **CRUD de articulos.**
+  - Actual: no existe; los articulos solo se pueden crear por SQL.
+  - Acordado: queda fuera de estas decisiones y requerira ticket especifico si
+    se necesita administrar articulos desde la API.
 
 ### Room Service
 - **Estado de reserva para crear pedidos.**

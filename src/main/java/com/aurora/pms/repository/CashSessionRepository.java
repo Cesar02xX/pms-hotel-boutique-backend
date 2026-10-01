@@ -19,6 +19,25 @@ public interface CashSessionRepository extends JpaRepository<CashSession, UUID> 
 
 	boolean existsByStatus(CashSessionStatus status);
 
+	Optional<CashSession> findFirstByOpenedByUserEmailAndStatusOrderByOpenedAtDesc(
+			String email,
+			CashSessionStatus status
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("""
+			select s from CashSession s
+			where s.openedByUser.id = :userId
+			  and s.status = :status
+			order by s.openedAt desc
+			""")
+	Optional<CashSession> findFirstByOpenedByUserIdAndStatusForUpdate(
+			@Param("userId") UUID userId,
+			@Param("status") CashSessionStatus status
+	);
+
+	boolean existsByOpenedByUserIdAndStatus(UUID openedByUserId, CashSessionStatus status);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select s from CashSession s where s.id = :id")
 	Optional<CashSession> findByIdForUpdate(@Param("id") UUID id);

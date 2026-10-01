@@ -164,18 +164,20 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
-	void secondOpenReturnsBadRequestWhileSessionIsOpen() throws Exception {
+	void anotherUserCanOpenTheirOwnSessionWhileSessionIsOpen() throws Exception {
 		openSession(10000L);
 		User otherCashier = createStaffUser("Other");
 
-		mockMvc.perform(post("/api/v1/cash-sessions/open")
+		MvcResult result = mockMvc.perform(post("/api/v1/cash-sessions/open")
 						.with(cashUser(otherCashier))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(openBody(5000L)))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.message").value("There is already an open cash session"));
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.openedByUserId").value(otherCashier.getId().toString()))
+				.andReturn();
+		trackSession(result);
 
-		assertThat(countOpenSessions()).isEqualTo(1);
+		assertThat(countOpenSessions()).isEqualTo(2);
 	}
 
 	@Test
@@ -218,7 +220,7 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 		createMovement(sessionId, "income", 2500L);
 		createMovement(sessionId, "expense", 1000L);
 
-		mockMvc.perform(get("/api/v1/cash-sessions/current").with(staffUser()))
+		mockMvc.perform(get("/api/v1/cash-sessions/current").with(cashierUser()))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.id").value(sessionId))
 				.andExpect(jsonPath("$.status").value("open"))
@@ -230,9 +232,9 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 
 	@Test
 	void currentWithoutOpenSessionReturnsNotFound() throws Exception {
-		mockMvc.perform(get("/api/v1/cash-sessions/current").with(staffUser()))
+		mockMvc.perform(get("/api/v1/cash-sessions/current").with(cashierUser()))
 				.andExpect(status().isNotFound())
-				.andExpect(jsonPath("$.message").value("No open cash session"));
+				.andExpect(jsonPath("$.message").value("No open cash session for current user"));
 	}
 
 	@Test
@@ -240,7 +242,7 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 		String sessionId = openSession(1000L);
 		closeSession(sessionId, 1000L);
 
-		mockMvc.perform(get("/api/v1/cash-sessions/current").with(staffUser()))
+		mockMvc.perform(get("/api/v1/cash-sessions/current").with(cashierUser()))
 				.andExpect(status().isNotFound());
 	}
 
@@ -301,7 +303,7 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 
 		// Retirar exactamente lo disponible sí se permite.
 		createMovement(sessionId, "expense", 1500L);
-		mockMvc.perform(get("/api/v1/cash-sessions/current").with(staffUser()))
+		mockMvc.perform(get("/api/v1/cash-sessions/current").with(cashierUser()))
 				.andExpect(jsonPath("$.expectedBalanceCents").value(0));
 	}
 

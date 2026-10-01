@@ -87,8 +87,9 @@ public class InventoryController {
 	@PostMapping("/{itemId}/movements")
 	@Operation(summary = "Register an inventory movement",
 			description = "in adds to currentQuantity (reasons: purchase, restock); out subtracts from it "
-					+ "(reasons: consumption, sale, shrinkage). Stock cannot go negative. occurredAt, createdAt "
-					+ "and responsibleUser are set by the server. Product stock is not modified.")
+					+ "(reasons: consumption, sale, shrinkage). physical_count can be used with either type "
+					+ "as a traceable adjustment. Stock cannot go negative. occurredAt, createdAt and "
+					+ "responsibleUser are set by the server. Product stock is not modified.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Movement registered"),
 			@ApiResponse(responseCode = "400",

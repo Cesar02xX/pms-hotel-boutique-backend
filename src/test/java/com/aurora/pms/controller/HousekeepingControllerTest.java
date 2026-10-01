@@ -159,7 +159,7 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 			ready.countDown();
 			assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
 			try {
-				housekeepingService.startCleaning(room.getId());
+				housekeepingService.startCleaning(room.getId(), "catalog.tester@aurora.test");
 				return true;
 			} catch (BadRequestException exception) {
 				return false;
