@@ -11,7 +11,7 @@ import com.aurora.pms.dto.response.CashSessionResponse;
 
 public interface CashSessionService {
 
-	CashSessionResponse findCurrent();
+	CashSessionResponse findCurrent(String actorEmail);
 
 	CashSessionResponse open(OpenCashSessionRequest request, String actorEmail);
 

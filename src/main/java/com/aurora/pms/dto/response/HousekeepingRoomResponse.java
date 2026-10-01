@@ -14,6 +14,11 @@ public record HousekeepingRoomResponse(
 		RoomStatus status,
 		RoomHousekeepingStatus housekeepingStatus,
 		String notes,
+		String cleaningUserEmail,
+		OffsetDateTime cleaningStartedAt,
+		OffsetDateTime cleaningCompletedAt,
+		String inspectorUserEmail,
+		OffsetDateTime inspectedAt,
 		OffsetDateTime updatedAt
 ) {
 }

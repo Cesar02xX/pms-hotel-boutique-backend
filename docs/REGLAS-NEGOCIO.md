@@ -1,14 +1,14 @@
-# Reglas de negocio — PMS Hotel Boutique Aurora (backend)
+﻿# Reglas de negocio â€” PMS Hotel Boutique Aurora (backend)
 
 Resumen de las reglas de negocio **implementadas actualmente** en el backend,
-separadas por módulo. Cada regla sale del código (services, DTOs y queries),
-no de la planificación. Si cambias una regla en el código, actualiza este
+separadas por mÃ³dulo. Cada regla sale del cÃ³digo (services, DTOs y queries),
+no de la planificaciÃ³n. Si cambias una regla en el cÃ³digo, actualiza este
 documento.
 
 Todas las rutas cuelgan de `/api/v1`.
 
-Al final, la sección **17. Decisiones acordadas pendientes de implementación**
-lista las reglas ya decididas por el equipo que todavía no deben asumirse como
+Al final, la secciÃ³n **17. Decisiones acordadas pendientes de implementaciÃ³n**
+lista las reglas ya decididas por el equipo que todavÃ­a no deben asumirse como
 implementadas en Java.
 
 ---
@@ -17,94 +17,94 @@ implementadas en Java.
 
 - **Seguridad:** todos los endpoints requieren JWT (`Authorization: Bearer <token>`),
   excepto `/health`, `/auth/login`, `/auth/refresh`, `/auth/logout` y Swagger.
-  Sin token o con token inválido → `401`.
-- **Formato de error único:** todos los errores usan `ApiErrorResponse` a través de
+  Sin token o con token invÃ¡lido â†’ `401`.
+- **Formato de error Ãºnico:** todos los errores usan `ApiErrorResponse` a travÃ©s de
   `GlobalExceptionHandler`.
-- **Códigos HTTP:**
-  - `400`: validación de DTO fallida (incluye `errors` por campo), regla de
-    negocio incumplida, JSON mal formado, enum/fecha/UUID inválido en el body
-    o UUID inválido en la ruta.
+- **CÃ³digos HTTP:**
+  - `400`: validaciÃ³n de DTO fallida (incluye `errors` por campo), regla de
+    negocio incumplida, JSON mal formado, enum/fecha/UUID invÃ¡lido en el body
+    o UUID invÃ¡lido en la ruta.
   - `404`: el recurso principal de la ruta no existe.
-  - `401`: sin autenticación.
+  - `401`: sin autenticaciÃ³n.
   - `409`: conflicto con datos existentes o con el estado financiero de la
-    reserva, por ejemplo huéspedes duplicados, sobrepagos o checkout con saldo
+    reserva, por ejemplo huÃ©spedes duplicados, sobrepagos o checkout con saldo
     distinto de cero.
-  - `500`: error inesperado (mensaje genérico, sin detalles internos).
+  - `500`: error inesperado (mensaje genÃ©rico, sin detalles internos).
 - **Referencias en el body:** cuando un ID enviado en el body no existe (por
-  ejemplo `roomTypeId` al crear una habitación), la respuesta es `400`, no
+  ejemplo `roomTypeId` al crear una habitaciÃ³n), la respuesta es `400`, no
   `404`. El `404` se reserva para el recurso de la ruta.
-  **Excepción actual:** Room Service responde `404` cuando no existen el
-  `bookingId` o el `productId` del body (ver sección 16).
+  **ExcepciÃ³n actual:** Room Service responde `404` cuando no existen el
+  `bookingId` o el `productId` del body (ver secciÃ³n 16).
 - **Dinero:** siempre en **centavos enteros** (`Long`). La moneda es siempre
-  `GTQ`. En pagos, depósitos y caja, los montos con decimales (`1.5`) se
+  `GTQ`. En pagos, depÃ³sitos y caja, los montos con decimales (`1.5`) se
   **rechazan** con `400` en lugar de truncarse. Lo mismo aplica a las
   cantidades de los movimientos de inventario.
 - **Campos controlados por el servidor:** IDs, estados iniciales, moneda,
   timestamps (`createdAt`, `updatedAt`, `paidAt`, `openedAt`, etc.) y usuario
-  responsable los asigna el backend. Si el cliente los envía en el body, se
+  responsable los asigna el backend. Si el cliente los envÃ­a en el body, se
   **ignoran**.
-- **Textos:** los nombres, códigos y conceptos se guardan sin espacios al inicio
+- **Textos:** los nombres, cÃ³digos y conceptos se guardan sin espacios al inicio
   ni al final (`trim`).
 - **Entidades JPA:** nunca se exponen directamente; siempre se usan DTOs de
   request/response.
 - **Transacciones:** las operaciones que modifican datos son transaccionales.
   Las que pueden sufrir concurrencia (check-in, checkout, folio, pagos,
-  depósitos, reembolsos, caja, conserjería, inventario, housekeeping y estados
+  depÃ³sitos, reembolsos, caja, conserjerÃ­a, inventario, housekeeping y estados
   de Room Service) usan bloqueo pesimista de fila.
 
 ---
 
-## 1. Autenticación (`/auth`)
+## 1. AutenticaciÃ³n (`/auth`)
 
-- **Login:** email (formato válido) y contraseña son obligatorios. Ante
-  cualquier fallo (usuario inexistente, contraseña incorrecta, usuario
+- **Login:** email (formato vÃ¡lido) y contraseÃ±a son obligatorios. Ante
+  cualquier fallo (usuario inexistente, contraseÃ±a incorrecta, usuario
   deshabilitado) se responde siempre `"Invalid email or password"`, para no
-  revelar qué dato falló.
+  revelar quÃ© dato fallÃ³.
 - **Usuario inactivo:** un usuario con `status = inactive` queda deshabilitado
   y no puede autenticarse.
 - **Respuesta del login:** `accessToken` (JWT), `refreshToken`, tipo `Bearer` y
-  la expiración en segundos.
+  la expiraciÃ³n en segundos.
 - **Permisos:** el token incluye el rol como `ROLE_<CODIGO_ROL>` y las
   *keys* de los permisos asociados al rol.
 - **Refresh tokens:**
   - Son valores aleatorios de 64 bytes. En la BD solo se guarda su **hash
     SHA-256**, nunca el valor original.
-  - **Rotación:** cada `/auth/refresh` revoca el token usado y emite uno nuevo.
+  - **RotaciÃ³n:** cada `/auth/refresh` revoca el token usado y emite uno nuevo.
     Un token no se puede reutilizar.
-  - Un token es inválido si está revocado, expirado, sin usuario o si el
-    usuario no está `active`.
+  - Un token es invÃ¡lido si estÃ¡ revocado, expirado, sin usuario o si el
+    usuario no estÃ¡ `active`.
   - `/auth/logout` revoca el refresh token enviado.
   - Expiraciones configurables: access token de 30 min y refresh token de
-    7 días por defecto.
+    7 dÃ­as por defecto.
 
 ---
 
-## 2. Tipos de habitación (`/room-types`)
+## 2. Tipos de habitaciÃ³n (`/room-types`)
 
 - Campos obligatorios: `code`, `name` y `capacity` (mayor que 0).
-- **`code` único:** no puede repetirse al crear ni al actualizar.
-- **Características (`roomFeatureIds`):**
-  - Todas deben existir; si falta alguna → `400` con la lista de IDs faltantes.
+- **`code` Ãºnico:** no puede repetirse al crear ni al actualizar.
+- **CaracterÃ­sticas (`roomFeatureIds`):**
+  - Todas deben existir; si falta alguna â†’ `400` con la lista de IDs faltantes.
   - Los IDs repetidos se ignoran (no se duplican asociaciones).
-  - Al actualizar, si se envía la lista, **reemplaza** las asociaciones: quita
-    las que ya no están y agrega las nuevas. Si no se envía, no se tocan.
-- La actualización es parcial: solo cambian los campos enviados, y los
+  - Al actualizar, si se envÃ­a la lista, **reemplaza** las asociaciones: quita
+    las que ya no estÃ¡n y agrega las nuevas. Si no se envÃ­a, no se tocan.
+- La actualizaciÃ³n es parcial: solo cambian los campos enviados, y los
   campos de texto enviados no pueden estar en blanco.
-- **Reducción de capacidad:** no se permite bajar `capacity` si existen
+- **ReducciÃ³n de capacidad:** no se permite bajar `capacity` si existen
   reservas activas o futuras (`pending`, `confirmed`, `checked_in`) cuyo
   `adults + children` supere la nueva capacidad. El conflicto responde `409`.
 
-## 3. Características de habitación (`/room-features`)
+## 3. CaracterÃ­sticas de habitaciÃ³n (`/room-features`)
 
-- Catálogo de solo lectura: se listan ordenadas por nombre.
+- CatÃ¡logo de solo lectura: se listan ordenadas por nombre.
 
 ## 4. Habitaciones (`/rooms`)
 
 - Campos obligatorios: `roomNumber` y `roomTypeId`. El tipo debe existir.
-- **`roomNumber` único** al crear y al actualizar.
+- **`roomNumber` Ãºnico** al crear y al actualizar.
 - Estados por defecto al crear: `status = available` y
   `housekeepingStatus = dirty`.
-- La actualización es parcial; si se envía `roomNumber`, no puede estar en
+- La actualizaciÃ³n es parcial; si se envÃ­a `roomNumber`, no puede estar en
   blanco.
 - `housekeepingStatus` no puede modificarse desde `PUT /rooms/{id}`. Los
   cambios de limpieza deben pasar por Housekeeping; intentarlo desde el CRUD
@@ -113,131 +113,131 @@ implementadas en Java.
 ## 5. Tarifas (`/rates`)
 
 - Campos obligatorios: `roomTypeId` (debe existir), `name`, `validFrom`,
-  `priceCents` (≥ 0) y `minimumNights` (> 0).
+  `priceCents` (â‰¥ 0) y `minimumNights` (> 0).
 - `currency` solo acepta `GTQ`.
 - **Vigencia:** `validTo` (opcional) debe ser igual o posterior a `validFrom`.
-  En una actualización parcial se valida contra los valores resultantes.
-- **Sin superposición:** no se permiten tarifas del mismo tipo de habitación
-  con vigencias que se crucen. Una `validTo` vacía se trata como vigencia
+  En una actualizaciÃ³n parcial se valida contra los valores resultantes.
+- **Sin superposiciÃ³n:** no se permiten tarifas del mismo tipo de habitaciÃ³n
+  con vigencias que se crucen. Una `validTo` vacÃ­a se trata como vigencia
   abierta. El conflicto responde `409`.
 
 ---
 
-## 6. Huéspedes (`/guests`)
+## 6. HuÃ©spedes (`/guests`)
 
-- Campos obligatorios: `firstName` y `lastName`. Si se envía `email`, debe
-  tener formato válido.
+- Campos obligatorios: `firstName` y `lastName`. Si se envÃ­a `email`, debe
+  tener formato vÃ¡lido.
 - `createdAt` nunca cambia al actualizar.
 - Listado ordenado por apellido y nombre.
-- **Unicidad** (al crear y al actualizar; en la actualización no se compara
-  al huésped consigo mismo). Un duplicado responde `409`:
-  - `email` único cuando se informa. La comparación no distingue mayúsculas
-    de minúsculas.
-  - La combinación `documentType + documentNumber` es única cuando ambos se
-    informan. El mismo número con otro tipo de documento sí se permite.
-  - Los opcionales vacíos o solo con espacios se guardan como `null` y pueden
+- **Unicidad** (al crear y al actualizar; en la actualizaciÃ³n no se compara
+  al huÃ©sped consigo mismo). Un duplicado responde `409`:
+  - `email` Ãºnico cuando se informa. La comparaciÃ³n no distingue mayÃºsculas
+    de minÃºsculas.
+  - La combinaciÃ³n `documentType + documentNumber` es Ãºnica cuando ambos se
+    informan. El mismo nÃºmero con otro tipo de documento sÃ­ se permite.
+  - Los opcionales vacÃ­os o solo con espacios se guardan como `null` y pueden
     repetirse sin generar duplicados.
-  - La base de datos lo refuerza con índices únicos parciales
+  - La base de datos lo refuerza con Ã­ndices Ãºnicos parciales
     (`ux_guests_email`, `ux_guests_document`).
 
 ## 7. Reservas (`/bookings`)
 
-### Creación y edición
+### CreaciÃ³n y ediciÃ³n
 - Campos obligatorios: `guestId`, `roomTypeId`, `checkIn`, `checkOut`,
-  `adults` (≥ 1) y `children` (≥ 0). `roomId` y `rateId` son opcionales.
-- Todas las referencias (huésped, tipo, habitación, tarifa) deben existir.
+  `adults` (â‰¥ 1) y `children` (â‰¥ 0). `roomId` y `rateId` son opcionales.
+- Todas las referencias (huÃ©sped, tipo, habitaciÃ³n, tarifa) deben existir.
 - **Fechas:** `checkIn` debe ser anterior a `checkOut`.
 - **Capacidad:** `adults + children` no puede superar la capacidad del tipo de
-  habitación.
-- **Coherencia:** la habitación y la tarifa, si se envían, deben pertenecer al
-  mismo tipo de habitación de la reserva.
-- **Tarifas:** si se envía tarifa, debe estar activa, pertenecer al tipo de
-  habitación de la reserva, cubrir las noches de la estadía y cumplir
+  habitaciÃ³n.
+- **Coherencia:** la habitaciÃ³n y la tarifa, si se envÃ­an, deben pertenecer al
+  mismo tipo de habitaciÃ³n de la reserva.
+- **Tarifas:** si se envÃ­a tarifa, debe estar activa, pertenecer al tipo de
+  habitaciÃ³n de la reserva, cubrir las noches de la estadÃ­a y cumplir
   `minimumNights`.
-- **Habitaciones operables:** no se puede asignar a una reserva una habitación
+- **Habitaciones operables:** no se puede asignar a una reserva una habitaciÃ³n
   con estado operativo `maintenance` u `out_of_service`.
-- **Disponibilidad:** una habitación no puede tener dos reservas activas
-  (`pending`, `confirmed`, `checked_in`) con fechas que se crucen. El día de
+- **Disponibilidad:** una habitaciÃ³n no puede tener dos reservas activas
+  (`pending`, `confirmed`, `checked_in`) con fechas que se crucen. El dÃ­a de
   salida de una reserva puede ser el de entrada de la siguiente.
-- **Total:** `totalAmountCents = precio de la tarifa × noches`. Sin tarifa, el
-  total es 0. Se recalcula en cada actualización.
+- **Total:** `totalAmountCents = precio de la tarifa Ã— noches`. Sin tarifa, el
+  total es 0. Se recalcula en cada actualizaciÃ³n.
 - Valores asignados al crear: `status = pending`, `currency = GTQ` y
-  dos códigos únicos aleatorios, `confirmationCode` (`BKG-XXXXXXXX`) y
-  `guestLinkCode` (`GL-XXXXXXXX`). Los códigos usan caracteres sin ambigüedad
+  dos cÃ³digos Ãºnicos aleatorios, `confirmationCode` (`BKG-XXXXXXXX`) y
+  `guestLinkCode` (`GL-XXXXXXXX`). Los cÃ³digos usan caracteres sin ambigÃ¼edad
   (sin 0/O ni 1/I).
-- La actualización es parcial y todas las validaciones se aplican de nuevo
+- La actualizaciÃ³n es parcial y todas las validaciones se aplican de nuevo
   sobre el resultado final.
 - `PUT /bookings/{id}` no permite cambiar `status`; los cambios importantes de
-  estado se hacen mediante operaciones específicas.
+  estado se hacen mediante operaciones especÃ­ficas.
 - Una reserva `checked_in` no admite modificaciones estructurales por el
-  `PUT` general (huésped, tipo, habitación, tarifa, fechas u ocupantes). Esas
-  operaciones quedan reservadas para flujos específicos futuros.
+  `PUT` general (huÃ©sped, tipo, habitaciÃ³n, tarifa, fechas u ocupantes). Esas
+  operaciones quedan reservadas para flujos especÃ­ficos futuros.
 
 ### Check-in (`POST /bookings/{id}/check-in`)
-- Solo reservas en estado `confirmed`. Si ya está `checked_in`, se responde
+- Solo reservas en estado `confirmed`. Si ya estÃ¡ `checked_in`, se responde
   `"Booking is already checked in"`.
-- **Fecha:** solo dentro de la estadía, es decir `checkIn ≤ hoy < checkOut`.
+- **Fecha:** solo dentro de la estadÃ­a, es decir `checkIn â‰¤ hoy < checkOut`.
   "Hoy" se calcula en la zona horaria del hotel (`America/Guatemala`).
-- La reserva debe tener una habitación asignada que:
+- La reserva debe tener una habitaciÃ³n asignada que:
   - pertenezca al tipo de la reserva;
-  - esté `available`;
-  - esté limpia (`clean` o `inspected`);
+  - estÃ© `available`;
+  - estÃ© limpia (`clean` o `inspected`);
   - no tenga otra reserva activa que se cruce.
-- **Composición:** huésped principal + acompañantes debe coincidir
+- **ComposiciÃ³n:** huÃ©sped principal + acompaÃ±antes debe coincidir
   **exactamente** con los `adults` y `children` declarados, y no superar la
   capacidad.
-- Resultado: la reserva pasa a `checked_in` y la habitación a `occupied`.
-- Se bloquea la reserva para evitar dos check-ins simultáneos.
+- Resultado: la reserva pasa a `checked_in` y la habitaciÃ³n a `occupied`.
+- Se bloquea la reserva para evitar dos check-ins simultÃ¡neos.
 
 ### Checkout (`POST /bookings/{id}/check-out`)
 - Solo reservas en estado `checked_in`.
-- Debe existir un folio abierto para la reserva. Si no existe → `404`; si el
-  folio no está abierto → `400`.
+- Debe existir un folio abierto para la reserva. Si no existe â†’ `404`; si el
+  folio no estÃ¡ abierto â†’ `400`.
 - El saldo del folio debe ser exactamente `0`. Cualquier saldo positivo o
   negativo bloquea el checkout con `409`.
 - Resultado: la reserva pasa a `checked_out`, el folio queda `closed`, la
-  habitación queda operativamente `available` y su `housekeepingStatus` pasa a
+  habitaciÃ³n queda operativamente `available` y su `housekeepingStatus` pasa a
   `dirty`.
-- El checkout no limpia la habitación; solo inicia el flujo posterior de
+- El checkout no limpia la habitaciÃ³n; solo inicia el flujo posterior de
   Housekeeping.
 
-## 8. Acompañantes (`/bookings/{bookingId}/companions`)
+## 8. AcompaÃ±antes (`/bookings/{bookingId}/companions`)
 
 - Campos obligatorios: `firstName`, `lastName` y `guestType` (`adult`/`child`).
-- La administración normal de acompañantes (crear, editar o eliminar) solo se
-  permite antes del check-in, mientras la reserva esté en estado `pending` o
-  `confirmed`. Si la reserva está `checked_in`, `checked_out`, `cancelled` o
+- La administraciÃ³n normal de acompaÃ±antes (crear, editar o eliminar) solo se
+  permite antes del check-in, mientras la reserva estÃ© en estado `pending` o
+  `confirmed`. Si la reserva estÃ¡ `checked_in`, `checked_out`, `cancelled` o
   `no_show`, esas operaciones responden `409`.
-- **El huésped principal no puede registrarse como acompañante.** Se detecta
-  por el mismo número de documento o por el mismo nombre y apellido
-  (ignorando mayúsculas y espacios).
-- **Composición:** el huésped principal cuenta como 1 adulto. Con los
-  acompañantes:
+- **El huÃ©sped principal no puede registrarse como acompaÃ±ante.** Se detecta
+  por el mismo nÃºmero de documento o por el mismo nombre y apellido
+  (ignorando mayÃºsculas y espacios).
+- **ComposiciÃ³n:** el huÃ©sped principal cuenta como 1 adulto. Con los
+  acompaÃ±antes:
   - los adultos no pueden superar los `adults` declarados en la reserva;
-  - los niños no pueden superar los `children` declarados;
-  - el total no puede superar la capacidad del tipo de habitación.
-- El acompañante debe pertenecer a la reserva de la ruta; si no → `404`.
+  - los niÃ±os no pueden superar los `children` declarados;
+  - el total no puede superar la capacidad del tipo de habitaciÃ³n.
+- El acompaÃ±ante debe pertenecer a la reserva de la ruta; si no â†’ `404`.
 
 ---
 
-## 9. Folio / cuenta del huésped (`/bookings/{bookingId}/folio`, `/charges`)
+## 9. Folio / cuenta del huÃ©sped (`/bookings/{bookingId}/folio`, `/charges`)
 
 - **Apertura idempotente:** `POST /folio/open` crea la cuenta (`201`) o
   devuelve la existente sin cambios (`200`). Hay una sola cuenta por reserva,
-  asociada al huésped principal.
-- No se puede abrir folio si la reserva está `checked_out`, `cancelled` o
+  asociada al huÃ©sped principal.
+- No se puede abrir folio si la reserva estÃ¡ `checked_out`, `cancelled` o
   `no_show`.
 - **Saldo inicial:** al abrir, el saldo se calcula con los cargos no anulados
   menos los pagos completados que ya tuviera la reserva.
-- **Saldo:** `balance = cargos no anulados − pagos completados`. Se mantiene
+- **Saldo:** `balance = cargos no anulados âˆ’ pagos completados`. Se mantiene
   actualizado en cada movimiento.
 - **Cargos:**
-  - Requieren un folio **abierto** (`404` si no existe, `400` si no está
+  - Requieren un folio **abierto** (`404` si no existe, `400` si no estÃ¡
     abierto).
   - Campos obligatorios: `description`, `quantity` (> 0), `unitPriceCents`
-    (≥ 0) y `category`. `productId` es opcional y, si se envía, debe existir.
-  - `amountCents = quantity × unitPriceCents`, calculado en el backend. Si el
-    resultado desborda → `400`.
+    (â‰¥ 0) y `category`. `productId` es opcional y, si se envÃ­a, debe existir.
+  - `amountCents = quantity Ã— unitPriceCents`, calculado en el backend. Si el
+    resultado desborda â†’ `400`.
   - El monto total debe ser mayor que `0`; los cargos financieros normales de
     valor cero se rechazan con `400`.
   - Se crean con `status = posted` y suman al saldo.
@@ -252,194 +252,222 @@ implementadas en Java.
   `transactionReference` es opcional.
 - No hay pasarela de pago: el pago se registra directamente como
   `completed`, con `paidAt` igual al momento del registro.
-- Se guarda el usuario autenticado que lo procesó.
-- El pago requiere un folio existente y abierto. Si todavía no existe folio,
-  la respuesta es `404`; si el folio existe pero no está abierto, la respuesta
+- Se guarda el usuario autenticado que lo procesÃ³.
+- El pago requiere un folio existente y abierto. Si todavÃ­a no existe folio,
+  la respuesta es `404`; si el folio existe pero no estÃ¡ abierto, la respuesta
   es `400`.
 - El pago resta del saldo del folio abierto.
 - No se permiten sobrepagos: si `amountCents` supera el saldo actual del folio,
   la respuesta es `409`.
 - No se registran pagos normales en reservas `cancelled`, `no_show` o
   `checked_out`.
-- Se bloquea la reserva para que un pago y una apertura de folio simultáneos
+- Se bloquea la reserva para que un pago y una apertura de folio simultÃ¡neos
   no descuadren el saldo.
 
-## 11. Depósitos (`/bookings/{bookingId}/deposits`)
+## 11. DepÃ³sitos (`/bookings/{bookingId}/deposits`)
 
 - Campos obligatorios: `amountCents` (> 0, entero) y `method`. `notes` es
   opcional.
 - Se crean como `held` (retenido), con `collectedAt` igual al momento del
   registro.
-- **Los depósitos no afectan el saldo del folio al crearse:** son una garantía,
+- **Los depÃ³sitos no afectan el saldo del folio al crearse:** son una garantÃ­a,
   no un pago.
-- No se registran depósitos normales en reservas `cancelled`, `no_show` o
+- No se registran depÃ³sitos normales en reservas `cancelled`, `no_show` o
   `checked_out`.
-- **Aplicación al folio (`POST /{depositId}/apply`):** solo depósitos `held`
-  con folio abierto. Cambia el depósito a `applied`, agrega la nota
-  `Applied to folio` y reduce el saldo por el monto del depósito. La operación
-  es idempotente: repetirla sobre un depósito ya `applied` responde `200` sin
-  mover nuevamente el saldo. Un depósito `refunded` no puede aplicarse.
-- **Reembolso:** solo depósitos `held`. Si ya fue reembolsado, se responde
-  `"Deposit is already refunded"`. El reembolso pasa el depósito a `refunded`,
-  registra `refundedAt` y, si se envía un motivo, lo agrega a las notas como
+- **AplicaciÃ³n al folio (`POST /{depositId}/apply`):** solo depÃ³sitos `held`
+  con folio abierto. Cambia el depÃ³sito a `applied`, agrega la nota
+  `Applied to folio` y reduce el saldo por el monto del depÃ³sito. La operaciÃ³n
+  es idempotente: repetirla sobre un depÃ³sito ya `applied` responde `200` sin
+  mover nuevamente el saldo. Un depÃ³sito `refunded` no puede aplicarse.
+- **Reembolso:** solo depÃ³sitos `held`. Si ya fue reembolsado, se responde
+  `"Deposit is already refunded"`. El reembolso pasa el depÃ³sito a `refunded`,
+  registra `refundedAt` y, si se envÃ­a un motivo, lo agrega a las notas como
   `Refund: <motivo>`.
-- Se bloquea el depósito para evitar dos reembolsos o aplicaciones simultáneas.
+- Se bloquea el depÃ³sito para evitar dos reembolsos o aplicaciones simultÃ¡neas.
 
 ---
 
 ## 12. Caja (`/cash-sessions`)
 
-- **Una sola caja abierta a la vez en todo el hotel.** El modelo no distingue
-  cajas ni terminales. Una sesión puede cerrarla un usuario distinto del que
-  la abrió.
+- **Sesiones por usuario:** cada usuario puede tener como maximo una sesion de
+  caja abierta. Otros usuarios pueden tener sus propias sesiones abiertas en
+  paralelo.
 - **Apertura (`POST /open`):**
-  - `openingBalanceCents` es obligatorio (≥ 0, entero). `notes` es opcional.
-  - Si ya hay una sesión abierta → `400`.
+  - `openingBalanceCents` es obligatorio (>= 0, entero). `notes` es opcional.
+  - Si el usuario autenticado ya tiene una sesion abierta -> `400`.
   - El usuario autenticado debe existir en la tabla `users`, porque queda
-    como `openedByUser`; si no existe → `401`.
+    como `openedByUser`; si no existe -> `401`.
   - Se crea con `status = open` y `currency = GTQ`.
-  - Las aperturas simultáneas se serializan con un bloqueo de PostgreSQL, así
-    que nunca quedan dos sesiones abiertas.
-- **Sesión actual (`GET /current`):** devuelve la sesión abierta con sus
-  totales calculados en vivo. Si no hay ninguna → `404`.
+  - Las aperturas simultaneas del mismo usuario se serializan con un bloqueo
+    de PostgreSQL y un indice unico parcial, asi que nunca quedan dos
+    sesiones abiertas para el mismo usuario.
+- **Sesion actual (`GET /current`):** devuelve la sesion abierta del usuario
+  autenticado con sus totales calculados en vivo. Si ese usuario no tiene
+  caja abierta -> `404`.
 - **Movimientos (`POST /{id}/movements`):**
-  - Campos obligatorios: `type` (`income`/`expense`), `concept` (no vacío,
-    máx. 255) y `amountCents` (> 0, entero).
-  - No se registran en una sesión cerrada (`400`).
+  - Campos obligatorios: `type` (`income`/`expense`), `concept` (no vacio,
+    max. 255) y `amountCents` (> 0, entero).
+  - No se registran en una sesion cerrada (`400`).
   - **Un egreso no puede superar el efectivo disponible** (apertura +
-    ingresos − egresos). La caja nunca queda en negativo.
+    ingresos - egresos). La caja nunca queda en negativo.
   - Se guarda el usuario responsable y `occurredAt` es el momento del
     registro.
-  - Son movimientos manuales: no hay integración automática con pagos, así
-    que `paymentId` queda en `null`.
+  - Los movimientos manuales no se vinculan a pagos, asi que `paymentId`
+    queda en `null`.
 - **Listado de movimientos (`GET /{id}/movements`):** ordenado
-  cronológicamente. Si la sesión no existe → `404`.
+  cronologicamente. Si la sesion no existe -> `404`.
 - **Cierre (`POST /{id}/close`):**
-  - `countedBalanceCents` es obligatorio (≥ 0, entero): lo contado
-    físicamente.
-  - Solo se cierra una sesión abierta; cerrar dos veces → `400`.
-  - El backend calcula y guarda los totales; los que envíe el cliente se
+  - `countedBalanceCents` es obligatorio (>= 0, entero): lo contado
+    fisicamente.
+  - Solo se cierra una sesion abierta; cerrar dos veces -> `400`.
+  - El backend calcula y guarda los totales; los que envie el cliente se
     ignoran:
-    - `expectedBalanceCents = apertura + ingresos − egresos`
-    - `differenceCents = contado − esperado` (negativo = faltante,
+    - `expectedBalanceCents = apertura + ingresos - egresos`
+    - `differenceCents = contado - esperado` (negativo = faltante,
       positivo = sobrante)
   - Registra `closedByUser` y `closedAt`. Las notas del cierre se agregan a
     las de apertura.
-- Cerrar y registrar movimientos bloquea la sesión, así que un movimiento no
-  puede entrar mientras la sesión se está cerrando.
+- Cerrar y registrar movimientos bloquea la sesion, asi que un movimiento no
+  puede entrar mientras la sesion se esta cerrando.
+- **Integracion con pagos:** un pago con `method = cash` crea automaticamente
+  un movimiento `income` en la caja abierta del usuario que procesa el pago.
+  Si el usuario no tiene caja abierta, el pago se rechaza y no queda
+  parcialmente registrado. Pagos con tarjeta, transferencia u online no crean
+  movimientos de caja. `cash_movements.payment_id` es unico para impedir
+  duplicidades.
 
 ---
 
-## 13. Conserjería (`/concierge/requests`)
+## 13. ConserjerÃ­a (`/concierge/requests`)
 
-- **Solo solicitudes de conserjería.** El módulo trabaja sobre `ServiceRequest`
-  únicamente con `type = concierge`:
+- **Solo solicitudes de conserjerÃ­a.** El mÃ³dulo trabaja sobre `ServiceRequest`
+  Ãºnicamente con `type = concierge`:
   - las solicitudes de otro tipo (`housekeeping`, `maintenance`, `other`) no
     aparecen en el listado;
   - consultar o cambiar el estado de una solicitud de otro tipo por su ID
     responde `404`, como si no existiera.
 - **Listado (`GET`):** filtros opcionales `bookingId` y `status`. Un valor
-  inválido en cualquiera de los dos → `400`. Orden: de la más antigua a la más
+  invÃ¡lido en cualquiera de los dos â†’ `400`. Orden: de la mÃ¡s antigua a la mÃ¡s
   reciente (`requestedAt`).
-- **Creación (`POST`):**
-  - `bookingId` y `description` (no vacía) son obligatorios. `notes` es
+- **CreaciÃ³n (`POST`):**
+  - `bookingId` y `description` (no vacÃ­a) son obligatorios. `notes` es
     opcional.
-  - La reserva debe existir. Si no existe → `400`, porque es una referencia
+  - La reserva debe existir. Si no existe â†’ `400`, porque es una referencia
     en el body.
   - Solo se crean solicitudes para reservas `confirmed` o `checked_in`; cualquier
     otro estado responde `400`.
   - El backend fija `type = concierge` y `status = pending`, y controla
     `requestedAt`, `createdAt` y `updatedAt`.
-  - La habitación y el huésped se toman de la reserva. `roomId` queda vacío si
-    la reserva no tiene habitación asignada.
-  - Si el cliente envía `type`, `status`, `roomId`, `guestId` o `chargeId`, se
+  - La habitaciÃ³n y el huÃ©sped se toman de la reserva. `roomId` queda vacÃ­o si
+    la reserva no tiene habitaciÃ³n asignada.
+  - Si el cliente envÃ­a `type`, `status`, `roomId`, `guestId` o `chargeId`, se
     ignoran.
 - **Flujo de estados (`POST /{requestId}/status`):**
-  - `pending → accepted | rejected | cancelled`
-  - `accepted → in_progress | cancelled`
-  - `in_progress → completed | cancelled`
+  - `pending â†’ accepted | rejected | cancelled`
+  - `accepted â†’ in_progress | cancelled`
+  - `in_progress â†’ completed | cancelled`
   - `completed`, `rejected` y `cancelled` son **terminales**: cualquier cambio
-    → `400`.
-  - Cualquier otra transición, incluido repetir el mismo estado → `400`.
+    â†’ `400`.
+  - Cualquier otra transiciÃ³n, incluido repetir el mismo estado â†’ `400`.
   - `rejected` solo puede producirse desde `pending`; si una solicitud aceptada
-    o en progreso no se realizará, se usa `cancelled`.
+    o en progreso no se realizarÃ¡, se usa `cancelled`.
   - `notes` es opcional en el cambio de estado (por ejemplo, el motivo del
     rechazo) y se agrega a las notas existentes.
-  - `responsibleUserId` es opcional en el cambio de estado. Si se envía, debe
+  - `responsibleUserId` es opcional en el cambio de estado. Si se envÃ­a, debe
     existir en `users`; el backend lo asocia a la solicitud para mantener la
     trazabilidad del responsable.
-  - El cambio de estado bloquea la solicitud, así que dos cambios simultáneos
+  - El cambio de estado bloquea la solicitud, asÃ­ que dos cambios simultÃ¡neos
     no pueden saltarse el flujo.
-- **Edición (`PUT /{requestId}`):** solo solicitudes `pending`. Permite cambiar
+- **EdiciÃ³n (`PUT /{requestId}`):** solo solicitudes `pending`. Permite cambiar
   `description` y/o `notes`; al menos un campo debe venir en el body.
-- **Sin cargos:** el módulo nunca crea cargos ni toca el folio; `chargeId`
+- **Sin cargos:** el mÃ³dulo nunca crea cargos ni toca el folio; `chargeId`
   queda en `null`.
 
 ## 14. Inventario (`/inventory/items`)
 
-- **Solo existencias.** El módulo consulta artículos y registra entradas y
-  salidas sobre artículos que ya existen. No crea, edita ni elimina
+- **Fuente oficial:** `InventoryItem.currentQuantity` es la fuente oficial de
+  existencias. `Product.stockQuantity` no se actualiza desde inventario ni se
+  usa para calcular stock disponible.
+- **Solo existencias.** El modulo consulta articulos y registra entradas,
+  salidas y ajustes sobre articulos que ya existen. No crea, edita ni elimina
   `InventoryItem`.
 - **Listado (`GET`):** todos los filtros son opcionales y se combinan:
   - `active` (`true`/`false`);
-  - `category`, sin distinguir mayúsculas ni espacios al inicio o al final;
-  - `lowStock=true` devuelve los artículos con `currentQuantity <=
+  - `category`, sin distinguir mayusculas ni espacios al inicio o al final;
+  - `lowStock=true` devuelve los articulos con `currentQuantity <=
     minimumQuantity`, y `lowStock=false` el resto.
 
-  Un valor inválido en `active` o `lowStock` → `400`. Orden: por nombre y
+  Un valor invalido en `active` o `lowStock` -> `400`. Orden: por nombre y
   luego por SKU.
-- **`lowStock` en la respuesta:** cada artículo incluye `lowStock`,
+- **`lowStock` en la respuesta:** cada articulo incluye `lowStock`,
   calculado en el backend con la misma regla (`currentQuantity <=
   minimumQuantity`).
 - **Detalle y movimientos (`GET /{itemId}`, `GET /{itemId}/movements`):** los
-  artículos inactivos siguen siendo consultables. Los movimientos se listan
-  en orden cronológico. Si el artículo no existe → `404`.
+  articulos inactivos siguen siendo consultables. Los movimientos se listan
+  en orden cronologico. Si el articulo no existe -> `404`.
 - **Registrar movimiento (`POST /{itemId}/movements`):**
   - `type` (`in`/`out`), `reason` y `quantity` (entero > 0) son obligatorios.
     `notes` es opcional.
   - Las cantidades con decimales, en texto o fuera del rango de un entero se
     rechazan (`400`) en lugar de truncarse.
-  - El artículo debe existir (`404`) y estar **activo** (`400`).
-  - **Combinaciones válidas de tipo y razón:**
-    - `in`: `purchase`, `restock`
-    - `out`: `consumption`, `sale`, `shrinkage`
-    - cualquier otra combinación → `400`.
+  - El articulo debe existir (`404`) y estar **activo** (`400`).
+  - **Combinaciones validas de tipo y razon:**
+    - `in`: `purchase`, `restock`, `physical_count`
+    - `out`: `consumption`, `sale`, `shrinkage`, `physical_count`
+    - cualquier otra combinacion -> `400`.
+  - `physical_count` representa un ajuste trazable por conteo fisico: si el
+    conteo real es mayor se registra como `in`, y si es menor como `out`.
   - `in` suma y `out` resta a `currentQuantity`.
-  - **El stock nunca queda negativo:** una salida mayor que la existencia →
+  - **El stock nunca queda negativo:** una salida mayor que la existencia ->
     `400` (`Insufficient stock`). Se permite dejar el stock exactamente en 0.
-  - Una entrada que desborde el máximo de un entero → `400`.
-  - El backend controla el artículo (por la URL), `occurredAt`, `createdAt` y
+  - Una entrada que desborde el maximo de un entero -> `400`.
+  - El backend controla el articulo (por la URL), `occurredAt`, `createdAt` y
     `responsibleUser`, que se toma del JWT cuando el usuario existe en `users`
     y queda `null` si no.
-- **Atomicidad y concurrencia:** el movimiento y la actualización de
-  `currentQuantity` ocurren en la misma transacción. El artículo se bloquea
-  mientras se registra el movimiento, así que dos salidas simultáneas no
-  pueden vender de más ni perder una resta.
-- **Sin integraciones:** no se modifica `Product.stockQuantity` aunque el
-  artículo esté vinculado a un producto. No hay integración con Room
-  Service, Caja ni Folio.
-- **Historial:** los movimientos nunca se borran ni se editan.
+- **Atomicidad y concurrencia:** el movimiento y la actualizacion de
+  `currentQuantity` ocurren en la misma transaccion. El articulo se bloquea
+  mientras se registra el movimiento, asi que dos salidas simultaneas no
+  pueden vender de mas ni perder una resta.
+- **Sin integraciones:** no hay integracion con Room Service, Caja ni Folio.
+- **Historial:** los movimientos nunca se borran ni se editan. Los errores se
+  corrigen con movimientos compensatorios.
 
 ## 15. Housekeeping (`/housekeeping/rooms`)
 
-- **Listado (`GET`):** todas las habitaciones ordenadas por número, con
+- **Listado (`GET`):** todas las habitaciones ordenadas por numero, con
   filtro opcional `housekeepingStatus` (`dirty`, `cleaning`, `clean`,
-  `inspected`). Un valor inválido → `400`.
-- **Detalle (`GET /{roomId}`):** si la habitación no existe → `404`.
-- **Flujo de limpieza:** cada acción exige un estado de origen exacto:
-  - `POST /{roomId}/start`: `dirty → cleaning`
-  - `POST /{roomId}/complete`: `cleaning → clean`
-  - `POST /{roomId}/inspect`: `clean → inspected`
-  - Si la habitación no está en el estado de origen → `400`.
-- El flujo operativo normal es de avance (`dirty → cleaning → clean →
-  inspected`). El checkout es la operación que vuelve a marcar automáticamente
-  una habitación como `dirty`.
+  `inspected`). Un valor invalido -> `400`.
+- **Detalle (`GET /{roomId}`):** si la habitacion no existe -> `404`.
+- **Flujo de limpieza de turnover:** cada accion exige un estado de origen
+  exacto:
+  - `POST /{roomId}/start`: `dirty -> cleaning`
+  - `POST /{roomId}/complete`: `cleaning -> clean`
+  - `POST /{roomId}/inspect`: `clean -> inspected`
+  - Si la habitacion no esta en el estado de origen -> `400`.
+- El flujo operativo normal es de avance (`dirty -> cleaning -> clean ->
+  inspected`). El checkout es la operacion que vuelve a marcar automaticamente
+  una habitacion como `dirty`.
+- Cada transicion de turnover registra trazabilidad en la habitacion:
+  `cleaningUser`, `cleaningStartedAt`, `cleaningCompletedAt`, `inspectorUser`
+  e `inspectedAt` segun corresponda. La persona que limpia y la que
+  inspecciona pueden ser distintas.
 - Solo cambia `housekeepingStatus`; el estado operativo (`status`:
-  `available`, `occupied`…) no se toca.
-- Relación con el check-in: una habitación solo admite check-in si está
-  `clean` o `inspected` (sección 7).
-- Cada acción bloquea la habitación, así que dos acciones simultáneas no
+  `available`, `occupied`, etc.) no se toca.
+- Relacion con el check-in: una habitacion solo admite check-in si esta
+  `clean` o `inspected` (seccion 7).
+- Cada accion bloquea la habitacion, asi que dos acciones simultaneas no
   pueden saltarse el flujo.
+- **Limpieza durante estancia:** se maneja como una solicitud independiente de
+  Housekeeping sobre `ServiceRequest` con `type = housekeeping`.
+  - `POST /{roomId}/stayover-cleanings` crea una tarea `pending` para una
+    reserva `checked_in` que pertenezca a esa habitacion.
+  - `GET /stayover-cleanings?bookingId=...` lista las tareas de una reserva.
+  - `POST /stayover-cleanings/{requestId}/start`: `pending -> in_progress`.
+  - `POST /stayover-cleanings/{requestId}/complete`: `in_progress -> completed`.
+  - Registra responsable, `requestedAt`, `startedAt`, `completedAt`,
+    `createdAt` y `updatedAt`.
+  - No cambia `Room.status` ni `Room.housekeepingStatus`: una habitacion
+    `occupied` continua ocupada y no se libera por completar esta tarea.
 
 ## 16. Room Service (`/room-service`)
 
@@ -449,156 +477,87 @@ implementadas en Java.
 
 ### Pedidos (`/room-service/orders`)
 - **Listado (`GET`):** filtros opcionales `bookingId` y `status`. Orden: del
-  más reciente al más antiguo.
-- **Detalle (`GET /{orderId}`):** incluye las líneas del pedido. Si no
-  existe → `404`.
-- **Creación (`POST`):**
-  - `bookingId` y al menos un ítem son obligatorios. `notes` es opcional.
-  - Cada ítem requiere `productId` y `quantity` (> 0).
+  mÃ¡s reciente al mÃ¡s antiguo.
+- **Detalle (`GET /{orderId}`):** incluye las lÃ­neas del pedido. Si no
+  existe â†’ `404`.
+- **CreaciÃ³n (`POST`):**
+  - `bookingId` y al menos un Ã­tem son obligatorios. `notes` es opcional.
+  - Cada Ã­tem requiere `productId` y `quantity` (> 0).
   - La reserva y los productos deben existir, y los productos deben estar
-    activos. Si no → **`404`** (distinto de la convención del resto de la
-    API, ver sección 0).
-  - Se crea con `status = pending` y `currency = GTQ`. La habitación y el
-    huésped se toman de la reserva, y el backend controla los timestamps.
-  - **Precio congelado:** cada línea guarda el precio del producto al
-    momento del pedido (`unitPriceCents`), así que un cambio de precio
+    activos. Si no â†’ **`404`** (distinto de la convenciÃ³n del resto de la
+    API, ver secciÃ³n 0).
+  - Se crea con `status = pending` y `currency = GTQ`. La habitaciÃ³n y el
+    huÃ©sped se toman de la reserva, y el backend controla los timestamps.
+  - **Precio congelado:** cada lÃ­nea guarda el precio del producto al
+    momento del pedido (`unitPriceCents`), asÃ­ que un cambio de precio
     posterior no afecta pedidos ya creados.
-  - **Totales calculados en backend:** `lineTotalCents = quantity ×
-    unitPriceCents` y `totalCents` = suma de las líneas.
+  - **Totales calculados en backend:** `lineTotalCents = quantity Ã—
+    unitPriceCents` y `totalCents` = suma de las lÃ­neas.
 - **Flujo de estados (`POST /{orderId}/status`):**
-  - `pending → accepted | rejected | cancelled`
-  - `accepted → preparing | cancelled`
-  - `preparing → ready | cancelled`
-  - `ready → on_the_way | cancelled`
-  - `on_the_way → delivered | cancelled`
+  - `pending â†’ accepted | rejected | cancelled`
+  - `accepted â†’ preparing | cancelled`
+  - `preparing â†’ ready | cancelled`
+  - `ready â†’ on_the_way | cancelled`
+  - `on_the_way â†’ delivered | cancelled`
   - `delivered`, `rejected` y `cancelled` son **terminales** (`400`).
-  - Repetir el estado actual o hacer cualquier otra transición → `400`.
+  - Repetir el estado actual o hacer cualquier otra transiciÃ³n â†’ `400`.
   - El cambio de estado bloquea el pedido.
 - **Sin integraciones:** crear o entregar un pedido **no** genera cargos en
   el folio y **no** descuenta `Product.stockQuantity` ni el inventario.
 
 ---
 
-## 17. Decisiones acordadas pendientes de implementación
+## 17. Decisiones acordadas pendientes de implementaciÃ³n
 
-Esta sección documenta decisiones ya tomadas por el equipo que **todavía no
-deben leerse como comportamiento implementado**. Cuando una decisión contradice
-el estado actual, se deja explícita la diferencia entre:
+Esta secciÃ³n documenta decisiones ya tomadas por el equipo que **todavÃ­a no
+deben leerse como comportamiento implementado**. Cuando una decisiÃ³n contradice
+el estado actual, se deja explÃ­cita la diferencia entre:
 
 - **Actual:** comportamiento hoy implementado en el backend.
 - **Acordado:** regla que debe implementarse posteriormente.
 
-### Reservas y acompañantes
+### Reservas y acompaÃ±antes
 - **Correcciones posteriores al check-in.**
-  - Actual: el check-in valida huésped titular + acompañantes contra adultos,
-    niños y capacidad; luego la reserva queda protegida contra cambios
+  - Actual: el check-in valida huÃ©sped titular + acompaÃ±antes contra adultos,
+    niÃ±os y capacidad; luego la reserva queda protegida contra cambios
     estructurales por el endpoint general.
-  - Acordado: si se requieren correcciones posteriores al check-in, deberán
-    manejarse en el futuro mediante una operación administrativa controlada.
+  - Acordado: si se requieren correcciones posteriores al check-in, deberÃ¡n
+    manejarse en el futuro mediante una operaciÃ³n administrativa controlada.
 
-### Folio, pagos y depósitos
+### Folio, pagos y depÃ³sitos
 - **Reembolsos de pagos.**
-  - Actual: solo se pueden reembolsar depósitos; no existe flujo de reembolso
+  - Actual: solo se pueden reembolsar depÃ³sitos; no existe flujo de reembolso
     de pagos.
   - Acordado: los reembolsos de pagos deben implementarse como movimientos
     independientes. No se debe eliminar ni modificar el pago original y debe
     mantenerse trazabilidad completa.
 
-### Caja
-- **Sesiones por usuario.**
-  - Actual: hay una sola caja abierta en todo el hotel y puede cerrarla un
-    usuario distinto del que la abrió.
-  - Acordado: cambiar a una sesión de caja por usuario/recepcionista. Cada
-    usuario autorizado podrá tener su propia sesión abierta y debe mantenerse
-    trazabilidad del usuario responsable.
-- **Caja actual inexistente.**
-  - Actual: `GET /cash-sessions/current` responde `404` si no hay caja abierta.
-  - Acordado: si se consulta la caja actual y el usuario no tiene una abierta,
-    mantener `404 Not Found`.
-- **Egresos mayores que efectivo disponible.**
-  - Actual: se rechazan para que la caja nunca quede en negativo.
-  - Acordado: mantener la regla; no permitir egresos superiores al efectivo
-    disponible.
-- **Integración con pagos.**
-  - Actual: los pagos no generan movimientos automáticos de caja.
-  - Acordado: los pagos en efectivo deben generar automáticamente un movimiento
-    de entrada en la caja del usuario que recibió el pago. Pagos con tarjeta u
-    otros medios electrónicos no aumentan el efectivo físico de la caja.
-- **Reapertura y correcciones.**
-  - Actual: una caja cerrada no puede reabrirse y los movimientos históricos no
-    se editan ni anulan.
-  - Acordado: una caja cerrada no puede reabrirse. Correcciones posteriores
-    deben realizarse mediante ajustes o movimientos trazables.
-
-### Conserjería
+### ConserjerÃ­a
 - **Cobro de servicios.**
-  - Actual: el módulo no crea cargos ni toca el folio; `chargeId` queda en
+  - Actual: el mÃ³dulo no crea cargos ni toca el folio; `chargeId` queda en
     `null`.
-  - Acordado: servicios de conserjería con costo podrán generar cargos al
+  - Acordado: servicios de conserjerÃ­a con costo podrÃ¡n generar cargos al
     folio; servicios gratuitos no generan cargos. El cargo debe generarse
     cuando corresponda confirmar o completar realmente el servicio, no
     simplemente al crear la solicitud.
 ### Inventario
-- **Fuente oficial de existencias.**
-  - Actual: `InventoryItem.currentQuantity` y `Product.stockQuantity` son
-    independientes; Room Service no descuenta ninguno de los dos.
-  - Acordado: `InventoryItem.currentQuantity` será la fuente oficial de
-    existencias. Evitar mantener dos cantidades independientes entre `Product`
-    e `InventoryItem`.
-- **Stock bajo.**
-  - Actual: `lowStock` ya se calcula como `currentQuantity <=
-    minimumQuantity`; `lowStock=false` devuelve los artículos por encima del
-    mínimo.
-  - Acordado: mantener stock bajo como `currentQuantity <= minimumQuantity`.
-    Si la existencia es exactamente igual al mínimo, ya se considera stock
-    bajo.
-- **Conteo físico y ajustes.**
-  - Actual: no existe razón específica de ajuste positivo por conteo físico; un
-    faltante se registra como `shrinkage`.
-  - Acordado: implementar movimientos de ajuste de inventario. No modificar
-    directamente `currentQuantity` sin trazabilidad. Los ajustes deben
-    registrar usuario, fecha y motivo.
-- **Movimientos históricos.**
-  - Actual: los movimientos nunca se borran ni se editan.
-  - Acordado: no editar ni eliminar movimientos históricos. Los errores deben
-    corregirse mediante movimientos compensatorios.
-- **CRUD de artículos.**
-  - Actual: no existe; los artículos solo se pueden crear por SQL.
-  - Acordado: queda fuera de estas decisiones y requerirá ticket específico si
-    se necesita administrar artículos desde la API.
-
-### Housekeeping
-- **Limpieza posterior al checkout.**
-  - Actual: el checkout deja la habitación `available + dirty`; luego
-    Housekeeping avanza `dirty → cleaning → clean → inspected`.
-  - Acordado: mantener separado el checkout de la limpieza. No permitir saltarse
-    estados mediante el CRUD normal.
-- **Limpieza durante la estancia.**
-  - Actual: Housekeeping opera sobre el `housekeepingStatus` de la habitación;
-    no existe una tarea independiente de limpieza durante estancia.
-  - Acordado: una habitación `occupied` también puede recibir limpieza si el
-    huésped la solicita. Esta limpieza debe manejarse como tarea/solicitud de
-    Housekeeping independiente, por ejemplo `pending → in_progress →
-    completed`. La habitación continúa `occupied`, no se libera y no debe
-    confundirse con la limpieza obligatoria posterior al checkout.
-- **Trazabilidad.**
-  - Actual: no se registra quién limpió o inspeccionó.
-  - Acordado: registrar empleado responsable, inicio y finalización, y quién
-    realiza la inspección cuando corresponda. La persona que limpia y la
-    persona que inspecciona pueden ser diferentes.
+- **CRUD de articulos.**
+  - Actual: no existe; los articulos solo se pueden crear por SQL.
+  - Acordado: queda fuera de estas decisiones y requerira ticket especifico si
+    se necesita administrar articulos desde la API.
 
 ### Room Service
 - **Estado de reserva para crear pedidos.**
   - Actual: se pueden crear pedidos para reservas `pending`, `cancelled`,
     `no_show` o `checked_out`.
-  - Acordado: los pedidos asociados a una habitación/reserva solo pueden
-    crearse cuando la reserva esté `checked_in`.
+  - Acordado: los pedidos asociados a una habitaciÃ³n/reserva solo pueden
+    crearse cuando la reserva estÃ© `checked_in`.
 - **Inventario.**
   - Actual: no se valida disponibilidad ni se descuenta stock.
-  - Acordado: `pending` todavía no descuenta inventario. Al pasar a
+  - Acordado: `pending` todavÃ­a no descuenta inventario. Al pasar a
     `accepted`, se debe validar existencia y descontar inventario. Si el pedido
-    se cancela después de haber afectado inventario, devolver las existencias.
-    La operación debe ser transaccional y segura ante concurrencia.
+    se cancela despuÃ©s de haber afectado inventario, devolver las existencias.
+    La operaciÃ³n debe ser transaccional y segura ante concurrencia.
 - **Cargo al folio.**
   - Actual: crear, aceptar o entregar un pedido no genera cargos en el folio;
     `charge_id` no se usa.
@@ -607,23 +566,23 @@ el estado actual, se deja explícita la diferencia entre:
     `charge_id` para impedir cargos duplicados.
 - **Cantidades.**
   - Actual: `quantity` puede truncar decimales como `1.5` a `1`.
-  - Acordado: solo permitir números enteros positivos (`1`, `2`, `3`, ...).
-    `0`, negativos y decimales son inválidos. Un decimal no debe redondearse
+  - Acordado: solo permitir nÃºmeros enteros positivos (`1`, `2`, `3`, ...).
+    `0`, negativos y decimales son invÃ¡lidos. Un decimal no debe redondearse
     ni truncarse; por ejemplo, `1.5` debe rechazarse con `400 Bad Request`.
-- **Cancelación.**
+- **CancelaciÃ³n.**
   - Actual: se puede cancelar hasta `on_the_way`.
-  - Acordado: permitir cancelación hasta `ready`. Flujo principal:
-    `pending → accepted → preparing → ready → on_the_way → delivered`.
-    Cancelación permitida desde `pending`, `accepted`, `preparing` y `ready`.
+  - Acordado: permitir cancelaciÃ³n hasta `ready`. Flujo principal:
+    `pending â†’ accepted â†’ preparing â†’ ready â†’ on_the_way â†’ delivered`.
+    CancelaciÃ³n permitida desde `pending`, `accepted`, `preparing` y `ready`.
     Una vez `on_the_way`, el pedido ya no puede cancelarse mediante el flujo
     normal.
 - **Productos duplicados.**
-  - Actual: el mismo producto puede aparecer en varias líneas independientes.
-  - Acordado: no mantener varias líneas independientes para el mismo producto
-    dentro de un pedido; consolidar productos repetidos en una sola línea
+  - Actual: el mismo producto puede aparecer en varias lÃ­neas independientes.
+  - Acordado: no mantener varias lÃ­neas independientes para el mismo producto
+    dentro de un pedido; consolidar productos repetidos en una sola lÃ­nea
     sumando sus cantidades.
 - **Referencias del body.**
   - Actual: si no existen el `bookingId` o un `productId` del body, responde
-    `404`, distinto de la convención del resto de la API.
-  - Acordado: la convención general de códigos queda sujeta a la regla de
-    códigos HTTP definida en General / seguridad.
+    `404`, distinto de la convenciÃ³n del resto de la API.
+  - Acordado: la convenciÃ³n general de cÃ³digos queda sujeta a la regla de
+    cÃ³digos HTTP definida en General / seguridad.

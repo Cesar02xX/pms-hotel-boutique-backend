@@ -38,16 +38,20 @@ import org.springframework.test.web.servlet.MvcResult;
 import com.aurora.pms.dto.request.CreatePaymentRequest;
 import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.CashSession;
 import com.aurora.pms.model.Deposit;
 import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.User;
+import com.aurora.pms.model.enums.CashSessionStatus;
 import com.aurora.pms.model.enums.DepositStatus;
 import com.aurora.pms.model.enums.GuestAccountStatus;
 import com.aurora.pms.model.enums.PaymentMethod;
 import com.aurora.pms.model.enums.PaymentStatus;
 import com.aurora.pms.model.enums.UserStatus;
+import com.aurora.pms.repository.CashMovementRepository;
+import com.aurora.pms.repository.CashSessionRepository;
 import com.aurora.pms.repository.ChargeRepository;
 import com.aurora.pms.repository.DepositRepository;
 import com.aurora.pms.repository.GuestAccountRepository;
@@ -63,6 +67,12 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 
 	@Autowired
 	private PaymentRepository paymentRepository;
+
+	@Autowired
+	private CashSessionRepository cashSessionRepository;
+
+	@Autowired
+	private CashMovementRepository cashMovementRepository;
 
 	@Autowired
 	private DepositRepository depositRepository;
@@ -89,12 +99,17 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	private PlatformTransactionManager transactionManager;
 
 	private final List<UUID> moneyBookingIds = new ArrayList<>();
+	private final List<UUID> cashSessionIds = new ArrayList<>();
 	private final List<UUID> userIds = new ArrayList<>();
 	private final List<UUID> roleIds = new ArrayList<>();
 
 	/** Corre antes del cleanup de la clase base, que borra las reservas. */
 	@AfterEach
 	void cleanUpMoneyData() {
+		cashSessionIds.forEach(sessionId ->
+				cashMovementRepository.deleteAll(
+						cashMovementRepository.findByCashSessionIdOrderByOccurredAtAscCreatedAtAsc(sessionId)));
+		cashSessionRepository.deleteAllById(cashSessionIds);
 		moneyBookingIds.forEach(bookingId -> {
 			paymentRepository.deleteAll(paymentRepository.findByBookingIdOrderByCreatedAtAsc(bookingId));
 			depositRepository.deleteAll(depositRepository.findByBookingIdOrderByCollectedAtAscCreatedAtAsc(bookingId));
@@ -152,6 +167,33 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 						.content(paymentBody(1000L)))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.processedByUserId").value(staff.getId().toString()));
+	}
+
+	@Test
+	void cashPaymentCreatesCashMovementInAuthenticatedUsersOpenSession() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 3000L);
+		User staff = createStaffUser();
+		CashSession session = openCashSession(staff, 1000L);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
+						.with(userWithPermissions(staff.getEmail(), SecurityPermissions.PAYMENTS_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"amountCents": 3000, "method": "cash"}
+								"""))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.processedByUserId").value(staff.getId().toString()));
+
+		assertThat(cashMovementRepository.findByCashSessionIdOrderByOccurredAtAscCreatedAtAsc(session.getId()))
+				.singleElement()
+				.satisfies(movement -> {
+					assertThat(movement.getType().name()).isEqualTo("income");
+					assertThat(movement.getAmountCents()).isEqualTo(3000L);
+					assertThat(movement.getPayment()).isNotNull();
+					assertThat(movement.getResponsibleUser().getId()).isEqualTo(staff.getId());
+				});
 	}
 
 	@Test
@@ -471,7 +513,7 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 					paymentStarted.countDown();
 					paymentService.create(
 							booking.getId(),
-							new CreatePaymentRequest(5000L, PaymentMethod.cash, null),
+							new CreatePaymentRequest(5000L, PaymentMethod.credit_card, null),
 							null
 					);
 				});
@@ -698,9 +740,22 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 		return staff;
 	}
 
+	private CashSession openCashSession(User staff, long openingBalanceCents) {
+		CashSession session = new CashSession();
+		session.setOpenedByUser(staff);
+		session.setOpenedAt(now());
+		session.setOpeningBalanceCents(openingBalanceCents);
+		session.setStatus(CashSessionStatus.open);
+		session.setCreatedAt(now());
+		session.setUpdatedAt(now());
+		session = cashSessionRepository.save(session);
+		cashSessionIds.add(session.getId());
+		return session;
+	}
+
 	private static String paymentBody(long amountCents) {
 		return """
-				{"amountCents": %d, "method": "cash"}
+				{"amountCents": %d, "method": "credit_card"}
 				""".formatted(amountCents);
 	}
 

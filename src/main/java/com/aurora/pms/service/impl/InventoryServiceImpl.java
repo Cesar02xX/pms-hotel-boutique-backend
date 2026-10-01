@@ -36,11 +36,15 @@ import com.aurora.pms.service.InventoryService;
 public class InventoryServiceImpl implements InventoryService {
 
 	private static final Map<InventoryMovementType, Set<InventoryMovementReason>> REASONS_BY_TYPE = Map.of(
-			InventoryMovementType.in, EnumSet.of(InventoryMovementReason.purchase, InventoryMovementReason.restock),
+			InventoryMovementType.in, EnumSet.of(
+					InventoryMovementReason.purchase,
+					InventoryMovementReason.restock,
+					InventoryMovementReason.physical_count),
 			InventoryMovementType.out, EnumSet.of(
 					InventoryMovementReason.consumption,
 					InventoryMovementReason.sale,
-					InventoryMovementReason.shrinkage)
+					InventoryMovementReason.shrinkage,
+					InventoryMovementReason.physical_count)
 	);
 
 	private final InventoryItemRepository inventoryItemRepository;

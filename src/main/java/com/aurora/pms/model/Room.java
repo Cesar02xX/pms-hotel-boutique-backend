@@ -52,6 +52,23 @@ public class Room {
 	@Column(columnDefinition = "text")
 	private String notes;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "cleaning_user_id")
+	private User cleaningUser;
+
+	@Column(name = "cleaning_started_at")
+	private OffsetDateTime cleaningStartedAt;
+
+	@Column(name = "cleaning_completed_at")
+	private OffsetDateTime cleaningCompletedAt;
+
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "inspector_user_id")
+	private User inspectorUser;
+
+	@Column(name = "inspected_at")
+	private OffsetDateTime inspectedAt;
+
 	@Column(name = "created_at", nullable = false)
 	private OffsetDateTime createdAt;
 

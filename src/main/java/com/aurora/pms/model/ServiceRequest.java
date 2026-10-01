@@ -69,6 +69,12 @@ public class ServiceRequest {
 	@Column(name = "requested_at", nullable = false)
 	private OffsetDateTime requestedAt;
 
+	@Column(name = "started_at")
+	private OffsetDateTime startedAt;
+
+	@Column(name = "completed_at")
+	private OffsetDateTime completedAt;
+
 	@Column(name = "created_at", nullable = false)
 	private OffsetDateTime createdAt;
 

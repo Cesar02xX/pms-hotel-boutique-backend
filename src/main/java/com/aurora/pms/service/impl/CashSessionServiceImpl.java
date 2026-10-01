@@ -56,24 +56,22 @@ public class CashSessionServiceImpl implements CashSessionService {
 
 	@Override
 	@Transactional(readOnly = true)
-	public CashSessionResponse findCurrent() {
-		CashSession session = cashSessionRepository.findFirstByStatusOrderByOpenedAtDesc(CashSessionStatus.open)
-				.orElseThrow(() -> new ResourceNotFoundException("No open cash session"));
+	public CashSessionResponse findCurrent(String actorEmail) {
+		User actor = requireActor(actorEmail);
+		CashSession session = cashSessionRepository
+				.findFirstByOpenedByUserEmailAndStatusOrderByOpenedAtDesc(actor.getEmail(), CashSessionStatus.open)
+				.orElseThrow(() -> new ResourceNotFoundException("No open cash session for current user"));
 		return toResponse(session);
 	}
 
 	@Override
 	@Transactional
 	public CashSessionResponse open(OpenCashSessionRequest request, String actorEmail) {
-		// opened_by_user_id es obligatorio: sin usuario real no se puede abrir caja.
-		User actor = findActor(actorEmail);
-		if (actor == null) {
-			throw new InsufficientAuthenticationException("Authenticated user not found");
-		}
+		User actor = requireActor(actorEmail);
 
 		cashSessionRepository.lockOpening();
-		if (cashSessionRepository.existsByStatus(CashSessionStatus.open)) {
-			throw new BadRequestException("There is already an open cash session");
+		if (cashSessionRepository.existsByOpenedByUserIdAndStatus(actor.getId(), CashSessionStatus.open)) {
+			throw new BadRequestException("There is already an open cash session for current user");
 		}
 
 		OffsetDateTime now = OffsetDateTime.now(clock);
@@ -186,6 +184,14 @@ public class CashSessionServiceImpl implements CashSessionService {
 			return null;
 		}
 		return userRepository.findByEmail(actorEmail).orElse(null);
+	}
+
+	private User requireActor(String actorEmail) {
+		User actor = findActor(actorEmail);
+		if (actor == null) {
+			throw new InsufficientAuthenticationException("Authenticated user not found");
+		}
+		return actor;
 	}
 
 	private static String appendNotes(String current, String addition) {

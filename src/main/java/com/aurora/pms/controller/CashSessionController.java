@@ -48,21 +48,24 @@ public class CashSessionController {
 
 	@GetMapping("/current")
 	@Operation(summary = "Get the open cash session",
-			description = "The hotel has a single cash register, so at most one session is open. "
+			description = "Returns the authenticated user's open cash session. "
 					+ "Totals and expectedBalanceCents are computed by the server.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Open cash session found"),
 			@ApiResponse(responseCode = "404", description = "No open cash session",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
 	})
-	public ResponseEntity<CashSessionResponse> findCurrent() {
-		return ResponseEntity.ok(cashSessionService.findCurrent());
+	public ResponseEntity<CashSessionResponse> findCurrent(
+			@Parameter(hidden = true) @AuthenticationPrincipal UserDetails currentUser
+	) {
+		String actorEmail = currentUser != null ? currentUser.getUsername() : null;
+		return ResponseEntity.ok(cashSessionService.findCurrent(actorEmail));
 	}
 
 	@PostMapping("/open")
 	@Operation(summary = "Open a cash session",
 			description = "id, status, currency, openedAt and openedByUser are set by the server. "
-					+ "Only one session can be open at a time.")
+					+ "Each user can have only one open session at a time.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Cash session opened"),
 			@ApiResponse(responseCode = "400", description = "Invalid request or a session is already open",

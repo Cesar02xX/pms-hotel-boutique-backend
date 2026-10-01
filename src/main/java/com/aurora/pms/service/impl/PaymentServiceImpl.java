@@ -15,12 +15,19 @@ import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.PaymentMapper;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.CashMovement;
+import com.aurora.pms.model.CashSession;
 import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Payment;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.CashMovementType;
+import com.aurora.pms.model.enums.CashSessionStatus;
+import com.aurora.pms.model.enums.PaymentMethod;
 import com.aurora.pms.model.enums.PaymentStatus;
 import com.aurora.pms.repository.BookingRepository;
+import com.aurora.pms.repository.CashMovementRepository;
+import com.aurora.pms.repository.CashSessionRepository;
 import com.aurora.pms.repository.PaymentRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.PaymentService;
@@ -30,6 +37,8 @@ public class PaymentServiceImpl implements PaymentService {
 
 	private final BookingRepository bookingRepository;
 	private final PaymentRepository paymentRepository;
+	private final CashSessionRepository cashSessionRepository;
+	private final CashMovementRepository cashMovementRepository;
 	private final UserRepository userRepository;
 	private final PaymentMapper paymentMapper;
 	private final GuestAccountBalance balance;
@@ -38,6 +47,8 @@ public class PaymentServiceImpl implements PaymentService {
 	public PaymentServiceImpl(
 			BookingRepository bookingRepository,
 			PaymentRepository paymentRepository,
+			CashSessionRepository cashSessionRepository,
+			CashMovementRepository cashMovementRepository,
 			UserRepository userRepository,
 			PaymentMapper paymentMapper,
 			GuestAccountBalance balance,
@@ -45,6 +56,8 @@ public class PaymentServiceImpl implements PaymentService {
 	) {
 		this.bookingRepository = bookingRepository;
 		this.paymentRepository = paymentRepository;
+		this.cashSessionRepository = cashSessionRepository;
+		this.cashMovementRepository = cashMovementRepository;
 		this.userRepository = userRepository;
 		this.paymentMapper = paymentMapper;
 		this.balance = balance;
@@ -75,13 +88,40 @@ public class PaymentServiceImpl implements PaymentService {
 		payment.setStatus(PaymentStatus.completed);
 		payment.setPaidAt(now);
 		payment.setCreatedAt(now);
-		payment.setProcessedByUser(findActor(actorEmail));
+		User actor = findActor(actorEmail);
+		payment.setProcessedByUser(actor);
 		payment = paymentRepository.save(payment);
 
 		long amountCents = payment.getAmountCents();
+		registerCashMovementIfNeeded(payment, actor, now);
 		balance.apply(account, -amountCents, now);
 
 		return paymentMapper.toResponse(payment);
+	}
+
+	private void registerCashMovementIfNeeded(Payment payment, User actor, OffsetDateTime now) {
+		if (payment.getMethod() != PaymentMethod.cash) {
+			return;
+		}
+		if (actor == null) {
+			throw new BadRequestException("Cash payments require an authenticated user");
+		}
+
+		CashSession session = cashSessionRepository
+				.findFirstByOpenedByUserIdAndStatusForUpdate(actor.getId(), CashSessionStatus.open)
+				.orElseThrow(() -> new BadRequestException("Cash payment requires an open cash session"));
+
+		CashMovement movement = new CashMovement();
+		movement.setCashSession(session);
+		movement.setType(CashMovementType.income);
+		movement.setConcept("Payment " + payment.getId());
+		movement.setAmountCents(payment.getAmountCents());
+		movement.setCurrency(payment.getCurrency());
+		movement.setResponsibleUser(actor);
+		movement.setOccurredAt(now);
+		movement.setPayment(payment);
+		movement.setCreatedAt(now);
+		cashMovementRepository.save(movement);
 	}
 
 	private User findActor(String actorEmail) {
