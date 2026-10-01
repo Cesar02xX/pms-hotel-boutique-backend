@@ -3,7 +3,6 @@ package com.aurora.pms.service.impl;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -66,9 +65,8 @@ public class PaymentServiceImpl implements PaymentService {
 	public PaymentResponse create(UUID bookingId, CreatePaymentRequest request, String actorEmail) {
 		Booking booking = getBookingForFolioMutation(bookingId);
 		ensureFinancialMovementsAllowed(booking);
-		// Sin folio abierto aún no hay saldo que mover: el pago se descuenta al abrirlo.
-		Optional<GuestAccount> account = balance.lockOpenAccountIfPresent(bookingId);
-		account.ifPresent(openAccount -> ensureNoOverpayment(openAccount, request.amountCents()));
+		GuestAccount account = balance.lockOpenAccount(bookingId);
+		ensureNoOverpayment(account, request.amountCents());
 
 		// Sin pasarela real: el pago se registra ya cobrado en recepción.
 		Payment payment = paymentMapper.toEntity(request, booking);
@@ -81,7 +79,7 @@ public class PaymentServiceImpl implements PaymentService {
 		payment = paymentRepository.save(payment);
 
 		long amountCents = payment.getAmountCents();
-		account.ifPresent(openAccount -> balance.apply(openAccount, -amountCents, now));
+		balance.apply(account, -amountCents, now);
 
 		return paymentMapper.toResponse(payment);
 	}

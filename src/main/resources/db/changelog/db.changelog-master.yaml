@@ -19,3 +19,5 @@ databaseChangeLog:
       file: db/changelog/migrations/009-guests-uniqueness.sql
   - include:
       file: db/changelog/migrations/010-checkout-finance-concierge.sql
+  - include:
+      file: db/changelog/migrations/011-concierge-responsible-user.sql

@@ -253,12 +253,12 @@ implementadas en Java.
 - No hay pasarela de pago: el pago se registra directamente como
   `completed`, con `paidAt` igual al momento del registro.
 - Se guarda el usuario autenticado que lo procesó.
-- **Efecto en el folio:**
-  - con folio abierto, el pago resta del saldo;
-  - sin folio, el pago queda pendiente y se descuenta cuando se abra;
-  - con folio no abierto (cerrado) → `400`.
-- Con folio abierto, no se permiten sobrepagos: si `amountCents` supera el
-  saldo actual del folio, la respuesta es `409`.
+- El pago requiere un folio existente y abierto. Si todavía no existe folio,
+  la respuesta es `404`; si el folio existe pero no está abierto, la respuesta
+  es `400`.
+- El pago resta del saldo del folio abierto.
+- No se permiten sobrepagos: si `amountCents` supera el saldo actual del folio,
+  la respuesta es `409`.
 - No se registran pagos normales en reservas `cancelled`, `no_show` o
   `checked_out`.
 - Se bloquea la reserva para que un pago y una apertura de folio simultáneos
@@ -365,6 +365,9 @@ implementadas en Java.
     o en progreso no se realizará, se usa `cancelled`.
   - `notes` es opcional en el cambio de estado (por ejemplo, el motivo del
     rechazo) y se agrega a las notas existentes.
+  - `responsibleUserId` es opcional en el cambio de estado. Si se envía, debe
+    existir en `users`; el backend lo asocia a la solicitud para mantener la
+    trazabilidad del responsable.
   - El cambio de estado bloquea la solicitud, así que dos cambios simultáneos
     no pueden saltarse el flujo.
 - **Edición (`PUT /{requestId}`):** solo solicitudes `pending`. Permite cambiar
@@ -528,9 +531,6 @@ el estado actual, se deja explícita la diferencia entre:
     deben realizarse mediante ajustes o movimientos trazables.
 
 ### Conserjería
-- **Asignación de empleados.**
-  - Actual: no se registra empleado responsable.
-  - Acordado: permitir asignar un empleado responsable.
 - **Cobro de servicios.**
   - Actual: el módulo no crea cargos ni toca el folio; `chargeId` queda en
     `null`.

@@ -62,6 +62,10 @@ public class ServiceRequest {
 	@JoinColumn(name = "charge_id")
 	private Charge charge;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "responsible_user_id")
+	private User responsibleUser;
+
 	@Column(name = "requested_at", nullable = false)
 	private OffsetDateTime requestedAt;
 

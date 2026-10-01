@@ -144,8 +144,6 @@ public class SecurityConfig {
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.CONCIERGE_WRITE)
 						.requestMatchers(HttpMethod.PUT, "/api/v1/concierge/requests/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.CONCIERGE_WRITE)
-						.requestMatchers(HttpMethod.PUT, "/api/v1/concierge/requests/**")
-						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.CONCIERGE_WRITE)
 						.anyRequest().authenticated())
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

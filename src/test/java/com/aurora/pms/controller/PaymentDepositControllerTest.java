@@ -110,6 +110,8 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	@Test
 	void createPaymentReturnsCreatedAndIgnoresServerFields() throws Exception {
 		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 50000L);
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
 						.with(staffUser())
@@ -140,6 +142,8 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	@Test
 	void createPaymentRecordsAuthenticatedUser() throws Exception {
 		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 1000L);
 		User staff = createStaffUser();
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
@@ -154,6 +158,10 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	void listPaymentsReturnsPaymentsOfBookingOnly() throws Exception {
 		Booking booking = createMoneyBooking();
 		Booking otherBooking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 10000L);
+		openFolio(otherBooking);
+		postCharge(otherBooking, 9900L);
 		String first = createPayment(booking, 1000L);
 		String second = createPayment(booking, 2500L);
 		createPayment(otherBooking, 9900L);
@@ -436,17 +444,17 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
-	void paymentBeforeFolioIsCountedWhenFolioOpens() throws Exception {
+	void paymentWithoutOpenFolioReturnsNotFoundAndIsNotSaved() throws Exception {
 		Booking booking = createMoneyBooking();
-		createPayment(booking, 3000L);
 
-		mockMvc.perform(post("/api/v1/bookings/{bookingId}/folio/open", booking.getId()).with(staffUser()))
-				.andExpect(status().isCreated())
-				.andExpect(jsonPath("$.balanceCents").value(-3000))
-				.andExpect(jsonPath("$.completedPaymentsCents").value(3000));
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(paymentBody(3000L)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.message").value("Guest account not found for booking: " + booking.getId()));
 
-		postCharge(booking, 5000L);
-		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(2000L);
+		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId())).isEmpty();
 	}
 
 	@Test

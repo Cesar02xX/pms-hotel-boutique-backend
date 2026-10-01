@@ -16,6 +16,7 @@ public class ConciergeRequestMapper {
 				request.getBooking().getId(),
 				request.getRoom() != null ? request.getRoom().getId() : null,
 				request.getGuest() != null ? request.getGuest().getId() : null,
+				request.getResponsibleUser() != null ? request.getResponsibleUser().getId() : null,
 				request.getType(),
 				request.getDescription(),
 				request.getStatus(),

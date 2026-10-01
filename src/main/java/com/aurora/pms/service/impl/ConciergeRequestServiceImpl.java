@@ -20,11 +20,13 @@ import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.ConciergeRequestMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.ServiceRequest;
+import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
+import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.ConciergeRequestService;
 
 /**
@@ -51,17 +53,20 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 
 	private final ServiceRequestRepository serviceRequestRepository;
 	private final BookingRepository bookingRepository;
+	private final UserRepository userRepository;
 	private final ConciergeRequestMapper conciergeRequestMapper;
 	private final Clock clock;
 
 	public ConciergeRequestServiceImpl(
 			ServiceRequestRepository serviceRequestRepository,
 			BookingRepository bookingRepository,
+			UserRepository userRepository,
 			ConciergeRequestMapper conciergeRequestMapper,
 			Clock clock
 	) {
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.bookingRepository = bookingRepository;
+		this.userRepository = userRepository;
 		this.conciergeRequestMapper = conciergeRequestMapper;
 		this.clock = clock;
 	}
@@ -140,10 +145,18 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 		}
 
 		serviceRequest.setStatus(target);
+		if (request.responsibleUserId() != null) {
+			serviceRequest.setResponsibleUser(findResponsibleUser(request.responsibleUserId()));
+		}
 		serviceRequest.setNotes(appendNotes(serviceRequest.getNotes(), trimToNull(request.notes())));
 		serviceRequest.setUpdatedAt(OffsetDateTime.now(clock));
 
 		return conciergeRequestMapper.toResponse(serviceRequestRepository.save(serviceRequest));
+	}
+
+	private User findResponsibleUser(UUID userId) {
+		return userRepository.findById(userId)
+				.orElseThrow(() -> new BadRequestException("Responsible user not found: " + userId));
 	}
 
 	private static ResourceNotFoundException notFound(UUID requestId) {
