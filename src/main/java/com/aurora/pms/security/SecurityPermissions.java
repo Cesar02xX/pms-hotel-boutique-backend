@@ -16,6 +16,7 @@ public final class SecurityPermissions {
 	public static final String BOOKINGS_READ = "bookings.read";
 	public static final String BOOKINGS_WRITE = "bookings.write";
 	public static final String BOOKINGS_CHECK_IN = "bookings.check-in";
+	public static final String BOOKINGS_CHECK_OUT = "bookings.check-out";
 	public static final String BOOKING_COMPANIONS_READ = "booking-companions.read";
 	public static final String BOOKING_COMPANIONS_WRITE = "booking-companions.write";
 	public static final String HOUSEKEEPING_READ = "housekeeping.read";
@@ -50,6 +51,7 @@ public final class SecurityPermissions {
 			BOOKINGS_READ,
 			BOOKINGS_WRITE,
 			BOOKINGS_CHECK_IN,
+			BOOKINGS_CHECK_OUT,
 			BOOKING_COMPANIONS_READ,
 			BOOKING_COMPANIONS_WRITE,
 			HOUSEKEEPING_READ,

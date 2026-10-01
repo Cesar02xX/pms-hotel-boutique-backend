@@ -14,4 +14,6 @@ public interface DepositService {
 	DepositResponse create(UUID bookingId, CreateDepositRequest request);
 
 	DepositResponse refund(UUID bookingId, UUID depositId, RefundDepositRequest request);
+
+	DepositResponse apply(UUID bookingId, UUID depositId);
 }

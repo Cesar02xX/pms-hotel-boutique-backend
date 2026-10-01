@@ -19,4 +19,6 @@ public interface BookingService {
 	BookingResponse update(UUID id, UpdateBookingRequest request);
 
 	CheckInResponse checkIn(UUID id);
+
+	BookingResponse checkOut(UUID id);
 }

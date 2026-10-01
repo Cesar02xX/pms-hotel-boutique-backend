@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.aurora.pms.dto.request.CreateConciergeRequestRequest;
+import com.aurora.pms.dto.request.UpdateConciergeRequestRequest;
 import com.aurora.pms.dto.request.UpdateConciergeRequestStatusRequest;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.exception.BadRequestException;
@@ -19,11 +20,13 @@ import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.ConciergeRequestMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.ServiceRequest;
+import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
+import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.ConciergeRequestService;
 
 /**
@@ -35,31 +38,35 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 
 	private static final ServiceRequestType TYPE = ServiceRequestType.concierge;
 
-	private static final Set<BookingStatus> STATUSES_WITHOUT_REQUESTS =
-			EnumSet.of(BookingStatus.checked_out, BookingStatus.cancelled, BookingStatus.no_show);
+	private static final Set<BookingStatus> STATUSES_WITH_REQUESTS =
+			EnumSet.of(BookingStatus.confirmed, BookingStatus.checked_in);
 
-	/** accepted -> rejected se permite: una solicitud aceptada puede resultar imposible de cumplir. */
 	private static final Map<ServiceRequestStatus, Set<ServiceRequestStatus>> TRANSITIONS = Map.of(
-			ServiceRequestStatus.pending, EnumSet.of(ServiceRequestStatus.accepted, ServiceRequestStatus.rejected),
-			ServiceRequestStatus.accepted, EnumSet.of(ServiceRequestStatus.in_progress, ServiceRequestStatus.rejected),
-			ServiceRequestStatus.in_progress, EnumSet.of(ServiceRequestStatus.completed),
+			ServiceRequestStatus.pending, EnumSet.of(ServiceRequestStatus.accepted, ServiceRequestStatus.rejected,
+					ServiceRequestStatus.cancelled),
+			ServiceRequestStatus.accepted, EnumSet.of(ServiceRequestStatus.in_progress, ServiceRequestStatus.cancelled),
+			ServiceRequestStatus.in_progress, EnumSet.of(ServiceRequestStatus.completed, ServiceRequestStatus.cancelled),
 			ServiceRequestStatus.completed, EnumSet.noneOf(ServiceRequestStatus.class),
-			ServiceRequestStatus.rejected, EnumSet.noneOf(ServiceRequestStatus.class)
+			ServiceRequestStatus.rejected, EnumSet.noneOf(ServiceRequestStatus.class),
+			ServiceRequestStatus.cancelled, EnumSet.noneOf(ServiceRequestStatus.class)
 	);
 
 	private final ServiceRequestRepository serviceRequestRepository;
 	private final BookingRepository bookingRepository;
+	private final UserRepository userRepository;
 	private final ConciergeRequestMapper conciergeRequestMapper;
 	private final Clock clock;
 
 	public ConciergeRequestServiceImpl(
 			ServiceRequestRepository serviceRequestRepository,
 			BookingRepository bookingRepository,
+			UserRepository userRepository,
 			ConciergeRequestMapper conciergeRequestMapper,
 			Clock clock
 	) {
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.bookingRepository = bookingRepository;
+		this.userRepository = userRepository;
 		this.conciergeRequestMapper = conciergeRequestMapper;
 		this.clock = clock;
 	}
@@ -85,7 +92,7 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 	public ConciergeRequestResponse create(CreateConciergeRequestRequest request) {
 		Booking booking = bookingRepository.findById(request.bookingId())
 				.orElseThrow(() -> new BadRequestException("Booking not found: " + request.bookingId()));
-		if (STATUSES_WITHOUT_REQUESTS.contains(booking.getStatus())) {
+		if (!STATUSES_WITH_REQUESTS.contains(booking.getStatus())) {
 			throw new BadRequestException(
 					"Cannot create concierge requests for a booking with status " + booking.getStatus());
 		}
@@ -97,6 +104,26 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 		serviceRequest.setRequestedAt(now);
 		serviceRequest.setCreatedAt(now);
 		serviceRequest.setUpdatedAt(now);
+
+		return conciergeRequestMapper.toResponse(serviceRequestRepository.save(serviceRequest));
+	}
+
+	@Override
+	@Transactional
+	public ConciergeRequestResponse update(UUID requestId, UpdateConciergeRequestRequest request) {
+		ServiceRequest serviceRequest = serviceRequestRepository.findByIdAndTypeForUpdate(requestId, TYPE)
+				.orElseThrow(() -> notFound(requestId));
+		if (serviceRequest.getStatus() != ServiceRequestStatus.pending) {
+			throw new BadRequestException("Only pending concierge requests can be edited");
+		}
+
+		if (request.description() != null) {
+			serviceRequest.setDescription(request.description().trim());
+		}
+		if (request.notes() != null) {
+			serviceRequest.setNotes(trimToNull(request.notes()));
+		}
+		serviceRequest.setUpdatedAt(OffsetDateTime.now(clock));
 
 		return conciergeRequestMapper.toResponse(serviceRequestRepository.save(serviceRequest));
 	}
@@ -118,10 +145,18 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 		}
 
 		serviceRequest.setStatus(target);
+		if (request.responsibleUserId() != null) {
+			serviceRequest.setResponsibleUser(findResponsibleUser(request.responsibleUserId()));
+		}
 		serviceRequest.setNotes(appendNotes(serviceRequest.getNotes(), trimToNull(request.notes())));
 		serviceRequest.setUpdatedAt(OffsetDateTime.now(clock));
 
 		return conciergeRequestMapper.toResponse(serviceRequestRepository.save(serviceRequest));
+	}
+
+	private User findResponsibleUser(UUID userId) {
+		return userRepository.findById(userId)
+				.orElseThrow(() -> new BadRequestException("Responsible user not found: " + userId));
 	}
 
 	private static ResourceNotFoundException notFound(UUID requestId) {

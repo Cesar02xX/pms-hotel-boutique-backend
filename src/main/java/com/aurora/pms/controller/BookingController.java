@@ -104,4 +104,20 @@ public class BookingController {
 			@RequestBody(required = false) CheckInRequest request) {
 		return ResponseEntity.ok(bookingService.checkIn(id));
 	}
+
+	@PostMapping("/{id}/check-out")
+	@Operation(summary = "Check out a booking",
+			description = "Closes an open zero-balance folio, marks the booking checked out and leaves the room dirty")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Booking checked out"),
+			@ApiResponse(responseCode = "400", description = "Booking cannot be checked out",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Booking or guest account not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "409", description = "Open folio balance is not zero",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<BookingResponse> checkOut(@PathVariable UUID id) {
+		return ResponseEntity.ok(bookingService.checkOut(id));
+	}
 }

@@ -10,6 +10,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -31,13 +32,18 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.Role;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.ServiceRequest;
+import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
+import com.aurora.pms.model.enums.UserStatus;
 import com.aurora.pms.repository.ChargeRepository;
+import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
+import com.aurora.pms.repository.UserRepository;
 import com.jayway.jsonpath.JsonPath;
 
 class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
@@ -50,12 +56,22 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private ChargeRepository chargeRepository;
 
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private RoleRepository roleRepository;
+
 	private final List<UUID> requestIds = new ArrayList<>();
+	private final List<UUID> userIds = new ArrayList<>();
+	private final List<UUID> roleIds = new ArrayList<>();
 
 	/** Corre antes del cleanup de la clase base, que borra las reservas. */
 	@AfterEach
 	void cleanUpConciergeData() {
 		serviceRequestRepository.deleteAllById(requestIds);
+		userRepository.deleteAllById(userIds);
+		roleRepository.deleteAllById(roleIds);
 	}
 
 	// ---------- Create
@@ -70,15 +86,16 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 						.content("""
 								{"bookingId": "%s", "description": " Reservar cena para 2 ", "notes": " Mesa terraza ",
 								 "id": "%s", "type": "housekeeping", "status": "completed",
-								 "roomId": "%s", "guestId": "%s", "chargeId": "%s",
+								 "roomId": "%s", "guestId": "%s", "responsibleUserId": "%s", "chargeId": "%s",
 								 "requestedAt": "2000-01-01T00:00:00Z", "createdAt": "2000-01-01T00:00:00Z"}
 								""".formatted(booking.getId(), UUID.randomUUID(), UUID.randomUUID(),
-								UUID.randomUUID(), UUID.randomUUID())))
+								UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID())))
 				.andExpect(status().isCreated())
 				.andExpect(jsonPath("$.id").exists())
 				.andExpect(jsonPath("$.bookingId").value(booking.getId().toString()))
 				.andExpect(jsonPath("$.roomId").value(booking.getRoom().getId().toString()))
 				.andExpect(jsonPath("$.guestId").value(booking.getGuest().getId().toString()))
+				.andExpect(jsonPath("$.responsibleUserId").value(nullValue()))
 				.andExpect(jsonPath("$.type").value("concierge"))
 				.andExpect(jsonPath("$.status").value("pending"))
 				.andExpect(jsonPath("$.description").value("Reservar cena para 2"))
@@ -122,8 +139,8 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = BookingStatus.class, names = {"checked_out", "cancelled", "no_show"})
-	void createForClosedBookingReturnsBadRequest(BookingStatus bookingStatus) throws Exception {
+	@EnumSource(value = BookingStatus.class, names = {"pending", "checked_out", "cancelled", "no_show"})
+	void createForDisallowedBookingStatusReturnsBadRequest(BookingStatus bookingStatus) throws Exception {
 		Booking booking = createConciergeBooking();
 		booking.setStatus(bookingStatus);
 		bookingRepository.save(booking);
@@ -291,6 +308,40 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	// ---------- Status flow
 
 	@Test
+	void statusChangeCanAssignResponsibleUser() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Reservar tour");
+		User responsible = createResponsibleUser();
+
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted", "responsibleUserId": "%s"}
+								""".formatted(responsible.getId())))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("accepted"))
+				.andExpect(jsonPath("$.responsibleUserId").value(responsible.getId().toString()));
+
+		assertThat(serviceRequestRepository.findById(UUID.fromString(id))).get()
+				.satisfies(request -> assertThat(request.getResponsibleUser().getId()).isEqualTo(responsible.getId()));
+	}
+
+	@Test
+	void statusChangeWithMissingResponsibleUserReturnsBadRequest() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Reservar tour");
+		UUID missingUserId = UUID.randomUUID();
+
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted", "responsibleUserId": "%s"}
+								""".formatted(missingUserId)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Responsible user not found: " + missingUserId));
+	}
+
+	@Test
 	void fullFlowReachesCompletedAndAppendsNotes() throws Exception {
 		Booking booking = createConciergeBooking();
 		String id = createRequest(booking, "Reservar spa", "Pedido en recepción");
@@ -318,8 +369,10 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 		return Stream.of(
 				Arguments.of(List.of(), "accepted"),
 				Arguments.of(List.of(), "rejected"),
+				Arguments.of(List.of(), "cancelled"),
 				Arguments.of(List.of("accepted"), "in_progress"),
-				Arguments.of(List.of("accepted"), "rejected"),
+				Arguments.of(List.of("accepted"), "cancelled"),
+				Arguments.of(List.of("accepted", "in_progress"), "cancelled"),
 				Arguments.of(List.of("accepted", "in_progress"), "completed")
 		);
 	}
@@ -348,6 +401,7 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				Arguments.of(List.of("accepted"), "accepted"),
 				Arguments.of(List.of("accepted"), "pending"),
 				Arguments.of(List.of("accepted"), "completed"),
+				Arguments.of(List.of("accepted"), "rejected"),
 				Arguments.of(List.of("accepted", "in_progress"), "rejected"),
 				Arguments.of(List.of("accepted", "in_progress"), "pending"),
 				Arguments.of(List.of("accepted", "in_progress"), "accepted")
@@ -378,7 +432,8 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	static Stream<Arguments> terminalStates() {
 		return Stream.of(
 				Arguments.of(List.of("accepted", "in_progress", "completed"), "completed"),
-				Arguments.of(List.of("rejected"), "rejected")
+				Arguments.of(List.of("rejected"), "rejected"),
+				Arguments.of(List.of("cancelled"), "cancelled")
 		);
 	}
 
@@ -418,6 +473,36 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.message").value("Malformed or invalid request body"));
 	}
 
+	@Test
+	void updatePendingRequestChangesDescriptionAndNotes() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Solicitud");
+
+		mockMvc.perform(put(BASE_PATH + "/{requestId}", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"description": " Tour privado ", "notes": " Ventana 10:00 "}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.description").value("Tour privado"))
+				.andExpect(jsonPath("$.notes").value("Ventana 10:00"));
+	}
+
+	@Test
+	void updateNonPendingRequestReturnsBadRequest() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Solicitud");
+		changeStatus(id, "accepted");
+
+		mockMvc.perform(put(BASE_PATH + "/{requestId}", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"description": "Tour privado"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Only pending concierge requests can be edited"));
+	}
+
 	// ---------- Security
 
 	static Stream<Arguments> conciergeEndpoints() {
@@ -426,7 +511,8 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				Arguments.of(HttpMethod.GET, BASE_PATH),
 				Arguments.of(HttpMethod.GET, BASE_PATH + "/" + id),
 				Arguments.of(HttpMethod.POST, BASE_PATH),
-				Arguments.of(HttpMethod.POST, BASE_PATH + "/" + id + "/status")
+				Arguments.of(HttpMethod.POST, BASE_PATH + "/" + id + "/status"),
+				Arguments.of(HttpMethod.PUT, BASE_PATH + "/" + id)
 		);
 	}
 
@@ -504,6 +590,29 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 		request = serviceRequestRepository.save(request);
 		requestIds.add(request.getId());
 		return request.getId();
+	}
+
+	private User createResponsibleUser() {
+		Role role = new Role();
+		role.setCode("concierge_resp_" + uniqueSuffix());
+		role.setName("Concierge responsible");
+		role.setCreatedAt(now());
+		role.setUpdatedAt(now());
+		role = roleRepository.save(role);
+		roleIds.add(role.getId());
+
+		User user = new User();
+		user.setFirstName("Concierge");
+		user.setLastName("Responsible");
+		user.setEmail("concierge.responsible.%s@aurora.test".formatted(uniqueSuffix()));
+		user.setPasswordHash("not-used");
+		user.setRole(role);
+		user.setStatus(UserStatus.active);
+		user.setCreatedAt(now());
+		user.setUpdatedAt(now());
+		user = userRepository.save(user);
+		userIds.add(user.getId());
+		return user;
 	}
 
 	private static String createBody(UUID bookingId, String description) {

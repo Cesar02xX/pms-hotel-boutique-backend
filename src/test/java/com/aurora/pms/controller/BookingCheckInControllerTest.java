@@ -9,7 +9,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -18,27 +21,43 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.AfterEach;
 import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.GuestAccountStatus;
 import com.aurora.pms.model.enums.GuestType;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.repository.GuestAccountRepository;
 
 @TestPropertySource(properties = "pms.hotel.zone-id=America/Guatemala")
 class BookingCheckInControllerTest extends AbstractCatalogApiTest {
 
 	private static final ZoneId HOTEL_ZONE = ZoneId.of("America/Guatemala");
 	private static final LocalDate HOTEL_TODAY = LocalDate.of(2026, 3, 10);
+
+	@Autowired
+	private GuestAccountRepository guestAccountRepository;
+
+	private final List<UUID> checkoutBookingIds = new ArrayList<>();
+
+	@AfterEach
+	void cleanUpCheckoutAccounts() {
+		checkoutBookingIds.forEach(bookingId ->
+				guestAccountRepository.findByBookingId(bookingId).ifPresent(guestAccountRepository::delete));
+	}
 
 	@Test
 	void checkInValidBookingReturnsOkAndUpdatesBookingAndRoom() throws Exception {
@@ -192,6 +211,43 @@ class BookingCheckInControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void checkOutClosesZeroBalanceFolioAndMarksRoomAvailableDirty() throws Exception {
+		Booking booking = createCheckedInBookingWithFolio(0L);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/check-out", booking.getId())
+						.with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(booking.getId().toString()))
+				.andExpect(jsonPath("$.status").value("checked_out"));
+
+		assertThat(bookingRepository.findById(booking.getId()).orElseThrow().getStatus())
+				.isEqualTo(BookingStatus.checked_out);
+		GuestAccount account = guestAccountRepository.findByBookingId(booking.getId()).orElseThrow();
+		assertThat(account.getStatus()).isEqualTo(GuestAccountStatus.closed);
+		assertThat(account.getClosedAt()).isNotNull();
+		Room room = roomRepository.findById(booking.getRoom().getId()).orElseThrow();
+		assertThat(room.getStatus()).isEqualTo(RoomStatus.available);
+		assertThat(room.getHousekeepingStatus()).isEqualTo(RoomHousekeepingStatus.dirty);
+	}
+
+	@Test
+	void checkOutWithPositiveBalanceReturnsConflictAndDoesNotPartiallyUpdate() throws Exception {
+		Booking booking = createCheckedInBookingWithFolio(1500L);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/check-out", booking.getId())
+						.with(staffUser()))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.message").value("Guest account balance must be zero before checkout"));
+
+		assertThat(bookingRepository.findById(booking.getId()).orElseThrow().getStatus())
+				.isEqualTo(BookingStatus.checked_in);
+		assertThat(guestAccountRepository.findByBookingId(booking.getId()).orElseThrow().getStatus())
+				.isEqualTo(GuestAccountStatus.open);
+		assertThat(roomRepository.findById(booking.getRoom().getId()).orElseThrow().getStatus())
+				.isEqualTo(RoomStatus.occupied);
+	}
+
+	@Test
 	void concurrentCheckInsOnlyAllowOneSuccess() throws Exception {
 		Booking booking = createCheckInReadyBooking(2, 1, 0);
 		CountDownLatch start = new CountDownLatch(1);
@@ -242,6 +298,32 @@ class BookingCheckInControllerTest extends AbstractCatalogApiTest {
 		booking.setRoomType(roomType);
 		booking.setRoom(room);
 		booking.setRate(rate);
+		return booking;
+	}
+
+	private Booking createCheckedInBookingWithFolio(long balanceCents) {
+		Booking booking = createCheckInReadyBooking(2, 1, 0);
+		UUID roomId = booking.getRoom().getId();
+		booking.setStatus(BookingStatus.checked_in);
+		booking.setUpdatedAt(now());
+		booking = bookingRepository.save(booking);
+		Room room = roomRepository.findById(roomId).orElseThrow();
+		room.setStatus(RoomStatus.occupied);
+		roomRepository.save(room);
+		booking.setRoom(room);
+
+		OffsetDateTime timestamp = now();
+		GuestAccount account = new GuestAccount();
+		account.setBooking(booking);
+		account.setGuest(booking.getGuest());
+		account.setStatus(GuestAccountStatus.open);
+		account.setBalanceCents(balanceCents);
+		account.setCurrency("GTQ");
+		account.setOpenedAt(timestamp);
+		account.setCreatedAt(timestamp);
+		account.setUpdatedAt(timestamp);
+		guestAccountRepository.save(account);
+		checkoutBookingIds.add(booking.getId());
 		return booking;
 	}
 

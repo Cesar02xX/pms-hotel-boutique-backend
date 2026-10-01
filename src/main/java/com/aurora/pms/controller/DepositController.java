@@ -87,4 +87,21 @@ public class DepositController {
 	) {
 		return ResponseEntity.ok(depositService.refund(bookingId, depositId, request));
 	}
+
+	@PostMapping("/{depositId}/apply")
+	@Operation(summary = "Apply a held deposit to the open folio",
+			description = "Idempotent: applying an already applied deposit returns it without moving the balance again.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Deposit applied"),
+			@ApiResponse(responseCode = "400", description = "Deposit cannot be applied",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Booking, deposit or open folio not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<DepositResponse> apply(
+			@PathVariable UUID bookingId,
+			@PathVariable UUID depositId
+	) {
+		return ResponseEntity.ok(depositService.apply(bookingId, depositId));
+	}
 }

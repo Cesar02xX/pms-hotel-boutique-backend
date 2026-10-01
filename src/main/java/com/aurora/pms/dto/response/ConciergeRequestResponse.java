@@ -11,6 +11,7 @@ public record ConciergeRequestResponse(
 		UUID bookingId,
 		UUID roomId,
 		UUID guestId,
+		UUID responsibleUserId,
 		ServiceRequestType type,
 		String description,
 		ServiceRequestStatus status,

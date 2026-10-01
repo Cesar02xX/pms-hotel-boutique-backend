@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -35,6 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 
 import com.aurora.pms.dto.request.CreatePaymentRequest;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Deposit;
 import com.aurora.pms.model.GuestAccount;
@@ -108,6 +110,8 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	@Test
 	void createPaymentReturnsCreatedAndIgnoresServerFields() throws Exception {
 		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 50000L);
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
 						.with(staffUser())
@@ -138,6 +142,8 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	@Test
 	void createPaymentRecordsAuthenticatedUser() throws Exception {
 		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 1000L);
 		User staff = createStaffUser();
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
@@ -152,6 +158,10 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	void listPaymentsReturnsPaymentsOfBookingOnly() throws Exception {
 		Booking booking = createMoneyBooking();
 		Booking otherBooking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 10000L);
+		openFolio(otherBooking);
+		postCharge(otherBooking, 9900L);
 		String first = createPayment(booking, 1000L);
 		String second = createPayment(booking, 2500L);
 		createPayment(otherBooking, 9900L);
@@ -434,21 +444,21 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
-	void paymentBeforeFolioIsCountedWhenFolioOpens() throws Exception {
+	void paymentWithoutOpenFolioReturnsNotFoundAndIsNotSaved() throws Exception {
 		Booking booking = createMoneyBooking();
-		createPayment(booking, 3000L);
 
-		mockMvc.perform(post("/api/v1/bookings/{bookingId}/folio/open", booking.getId()).with(staffUser()))
-				.andExpect(status().isCreated())
-				.andExpect(jsonPath("$.balanceCents").value(-3000))
-				.andExpect(jsonPath("$.completedPaymentsCents").value(3000));
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(paymentBody(3000L)))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.message").value("Guest account not found for booking: " + booking.getId()));
 
-		postCharge(booking, 5000L);
-		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(2000L);
+		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId())).isEmpty();
 	}
 
 	@Test
-	void concurrentPaymentDuringFolioOpenWaitsAndUpdatesOpenedFolioBalance() throws Exception {
+	void concurrentPaymentDuringFolioOpenCannotOverpayOpenedFolio() throws Exception {
 		Booking booking = createMoneyBooking();
 		ExecutorService executor = Executors.newSingleThreadExecutor();
 		CountDownLatch paymentStarted = new CountDownLatch(1);
@@ -475,15 +485,17 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 				return future;
 			});
 
-			payment.get(5, TimeUnit.SECONDS);
+			ExecutionException exception = org.junit.jupiter.api.Assertions.assertThrows(
+					ExecutionException.class,
+					() -> payment.get(5, TimeUnit.SECONDS)
+			);
+			assertThat(exception.getCause()).isInstanceOf(ConflictException.class);
 		} finally {
 			executor.shutdownNow();
 		}
 
-		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(-5000L);
-		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId()))
-				.singleElement()
-				.satisfies(payment -> assertThat(payment.getAmountCents()).isEqualTo(5000L));
+		assertThat(currentAccount(booking).getBalanceCents()).isZero();
+		assertThat(paymentRepository.findByBookingIdOrderByCreatedAtAsc(booking.getId())).isEmpty();
 	}
 
 	@Test
@@ -519,6 +531,42 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(10000L);
 	}
 
+	@Test
+	void applyDepositReducesOpenFolioBalanceAndIsIdempotent() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 10000L);
+		String depositId = createDeposit(booking, 4000L);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/deposits/{depositId}/apply", booking.getId(), depositId)
+						.with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("applied"))
+				.andExpect(jsonPath("$.notes").value("Garantia\nApplied to folio"));
+
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(6000L);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/deposits/{depositId}/apply", booking.getId(), depositId)
+						.with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("applied"));
+
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(6000L);
+	}
+
+	@Test
+	void applyRefundedDepositReturnsBadRequest() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		String depositId = createDeposit(booking, 4000L);
+		refundDeposit(booking, depositId);
+
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/deposits/{depositId}/apply", booking.getId(), depositId)
+						.with(staffUser()))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Only held deposits can be applied"));
+	}
+
 	// ---------- Security
 
 	static Stream<Arguments> moneyEndpoints() {
@@ -528,7 +576,8 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 				Arguments.of(HttpMethod.POST, "/api/v1/bookings/" + id + "/payments"),
 				Arguments.of(HttpMethod.GET, "/api/v1/bookings/" + id + "/deposits"),
 				Arguments.of(HttpMethod.POST, "/api/v1/bookings/" + id + "/deposits"),
-				Arguments.of(HttpMethod.POST, "/api/v1/bookings/" + id + "/deposits/" + id + "/refund")
+				Arguments.of(HttpMethod.POST, "/api/v1/bookings/" + id + "/deposits/" + id + "/refund"),
+				Arguments.of(HttpMethod.POST, "/api/v1/bookings/" + id + "/deposits/" + id + "/apply")
 		);
 	}
 

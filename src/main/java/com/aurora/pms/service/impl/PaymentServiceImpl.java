@@ -3,7 +3,6 @@ package com.aurora.pms.service.impl;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -11,12 +10,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.aurora.pms.dto.request.CreatePaymentRequest;
 import com.aurora.pms.dto.response.PaymentResponse;
+import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.PaymentMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Payment;
 import com.aurora.pms.model.User;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.PaymentStatus;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.PaymentRepository;
@@ -62,8 +64,9 @@ public class PaymentServiceImpl implements PaymentService {
 	@Transactional
 	public PaymentResponse create(UUID bookingId, CreatePaymentRequest request, String actorEmail) {
 		Booking booking = getBookingForFolioMutation(bookingId);
-		// Sin folio abierto aún no hay saldo que mover: el pago se descuenta al abrirlo.
-		Optional<GuestAccount> account = balance.lockOpenAccountIfPresent(bookingId);
+		ensureFinancialMovementsAllowed(booking);
+		GuestAccount account = balance.lockOpenAccount(bookingId);
+		ensureNoOverpayment(account, request.amountCents());
 
 		// Sin pasarela real: el pago se registra ya cobrado en recepción.
 		Payment payment = paymentMapper.toEntity(request, booking);
@@ -76,7 +79,7 @@ public class PaymentServiceImpl implements PaymentService {
 		payment = paymentRepository.save(payment);
 
 		long amountCents = payment.getAmountCents();
-		account.ifPresent(openAccount -> balance.apply(openAccount, -amountCents, now));
+		balance.apply(account, -amountCents, now);
 
 		return paymentMapper.toResponse(payment);
 	}
@@ -97,5 +100,20 @@ public class PaymentServiceImpl implements PaymentService {
 	private Booking getBookingForFolioMutation(UUID bookingId) {
 		return bookingRepository.findByIdForUpdate(bookingId)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+	}
+
+	private static void ensureFinancialMovementsAllowed(Booking booking) {
+		if (booking.getStatus() == BookingStatus.cancelled
+				|| booking.getStatus() == BookingStatus.no_show
+				|| booking.getStatus() == BookingStatus.checked_out) {
+			throw new BadRequestException(
+					"Cannot create financial movements for a booking with status " + booking.getStatus());
+		}
+	}
+
+	private static void ensureNoOverpayment(GuestAccount account, long amountCents) {
+		if (amountCents > account.getBalanceCents()) {
+			throw new ConflictException("Payment amount exceeds guest account balance");
+		}
 	}
 }
