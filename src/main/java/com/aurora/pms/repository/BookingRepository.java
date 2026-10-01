@@ -21,6 +21,19 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
 	boolean existsByGuestLinkCode(String guestLinkCode);
 
+	Optional<Booking> findByGuestLinkCode(String guestLinkCode);
+
+	@Query("""
+			select b
+			from Booking b
+			where b.checkIn <= :to
+			  and b.checkOut >= :from
+			""")
+	java.util.List<Booking> findOverlappingDates(
+			@Param("from") LocalDate from,
+			@Param("to") LocalDate to
+	);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select b from Booking b where b.id = :id")
 	Optional<Booking> findByIdForUpdate(@Param("id") UUID id);

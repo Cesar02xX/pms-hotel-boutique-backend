@@ -28,6 +28,7 @@ import tools.jackson.databind.ObjectMapper;
 public class SecurityConfig {
 
 	private static final String ADMIN_AUTHORITY = "ROLE_ADMIN";
+	private static final String GUEST_AUTHORITY = "ROLE_GUEST";
 
 	@Bean
 	public SecurityFilterChain securityFilterChain(
@@ -52,10 +53,41 @@ public class SecurityConfig {
 								"/api/v1/auth/login",
 								"/api/v1/auth/refresh",
 								"/api/v1/auth/logout",
+								"/api/v1/guest/auth/link",
 								"/swagger-ui/**",
 								"/swagger-ui.html",
 								"/v3/api-docs/**")
 						.permitAll()
+						.requestMatchers("/api/v1/guest/**")
+						.hasAuthority(GUEST_AUTHORITY)
+						.requestMatchers(HttpMethod.GET, "/api/v1/admin/amenities/**")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOMS_READ)
+						.requestMatchers(HttpMethod.POST, "/api/v1/admin/amenities")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOMS_WRITE)
+						.requestMatchers(HttpMethod.PUT, "/api/v1/admin/amenities/*")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOMS_WRITE)
+						.requestMatchers(HttpMethod.GET, "/api/v1/admin/room-service/products")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOM_SERVICE_READ)
+						.requestMatchers(HttpMethod.POST, "/api/v1/admin/room-service/products")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOM_SERVICE_WRITE)
+						.requestMatchers(HttpMethod.PUT, "/api/v1/admin/room-service/products/*")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOM_SERVICE_WRITE)
+						.requestMatchers(HttpMethod.POST, "/api/v1/admin/inventory/items")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.INVENTORY_WRITE)
+						.requestMatchers(HttpMethod.PUT, "/api/v1/admin/inventory/items/*")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.INVENTORY_WRITE)
+						.requestMatchers(HttpMethod.GET, "/api/v1/admin/users/**", "/api/v1/admin/roles")
+						.hasAnyAuthority(ADMIN_AUTHORITY)
+						.requestMatchers(HttpMethod.POST, "/api/v1/admin/users")
+						.hasAnyAuthority(ADMIN_AUTHORITY)
+						.requestMatchers(HttpMethod.PUT, "/api/v1/admin/users/*")
+						.hasAnyAuthority(ADMIN_AUTHORITY)
+						.requestMatchers("/api/v1/admin/promotions/**")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.RATES_WRITE)
+						.requestMatchers(HttpMethod.GET, "/api/v1/admin/reports/**", "/api/v1/admin/audit-logs")
+						.hasAnyAuthority(ADMIN_AUTHORITY)
+						.requestMatchers(HttpMethod.GET, "/api/v1/admin/bookings/*/receipt")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.FOLIOS_READ)
 						.requestMatchers(HttpMethod.GET, "/api/v1/rooms/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOMS_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/rooms")

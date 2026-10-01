@@ -29,3 +29,7 @@ databaseChangeLog:
       file: db/changelog/migrations/014-room-service-inventory.sql
   - include:
       file: db/changelog/migrations/015-room-service-folio-charge.sql
+  - include:
+      file: db/changelog/migrations/016-guest-access-notifications.sql
+  - include:
+      file: db/changelog/migrations/017-guest-notifications-cascade.sql

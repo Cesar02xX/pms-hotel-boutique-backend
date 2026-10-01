@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -18,21 +19,73 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.model.Role;
 import com.aurora.pms.model.Room;
+import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.model.enums.UserStatus;
+import com.aurora.pms.repository.RoleRepository;
+import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.HousekeepingService;
 
 class HousekeepingControllerTest extends AbstractCatalogApiTest {
 
 	@Autowired
 	private HousekeepingService housekeepingService;
+
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private RoleRepository roleRepository;
+
+	private final List<UUID> userIds = new ArrayList<>();
+	private final List<UUID> roleIds = new ArrayList<>();
+	private final List<UUID> housekeepingRoomIds = new ArrayList<>();
+
+	@BeforeEach
+	void setUpHousekeepingActor() {
+		userRepository.findByEmail("catalog.tester@aurora.test").ifPresent(user -> userRepository.deleteById(user.getId()));
+
+		Role role = new Role();
+		role.setCode("HOUSEKEEPING_TEST_" + uniqueSuffix());
+		role.setName("Housekeeping Test");
+		role.setCreatedAt(now());
+		role.setUpdatedAt(now());
+		role = roleRepository.save(role);
+		roleIds.add(role.getId());
+
+		User user = new User();
+		user.setFirstName("Catalog");
+		user.setLastName("Tester");
+		user.setEmail("catalog.tester@aurora.test");
+		user.setPasswordHash("hash");
+		user.setRole(role);
+		user.setStatus(UserStatus.active);
+		user.setCreatedAt(now());
+		user.setUpdatedAt(now());
+		user = userRepository.save(user);
+		userIds.add(user.getId());
+	}
+
+	@AfterEach
+	void cleanUpHousekeepingActor() {
+		roomRepository.deleteAllById(housekeepingRoomIds);
+		userRepository.deleteAllById(userIds);
+		roleRepository.deleteAllById(roleIds);
+		housekeepingRoomIds.clear();
+		userIds.clear();
+		roleIds.clear();
+	}
 
 	@Test
 	void listRoomsReturnsOkIncludingExistingRoom() throws Exception {
@@ -198,7 +251,9 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	private Room createRoomWithHousekeepingStatus(RoomHousekeepingStatus housekeepingStatus) {
 		Room room = createRoom(createRoomType());
 		room.setHousekeepingStatus(housekeepingStatus);
-		return roomRepository.save(room);
+		room = roomRepository.save(room);
+		housekeepingRoomIds.add(room.getId());
+		return room;
 	}
 
 	private static RoomHousekeepingStatus nextStatus(RoomHousekeepingStatus housekeepingStatus) {

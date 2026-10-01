@@ -1,6 +1,7 @@
 package com.aurora.pms.repository;
 
 import java.util.List;
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,4 +29,15 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select o from Order o where o.id = :id")
 	Optional<Order> findByIdForUpdate(@Param("id") UUID id);
+
+	@Query("""
+			select count(o)
+			from Order o
+			where o.requestedAt >= :from
+			  and o.requestedAt < :to
+			""")
+	long countByRequestedAtRange(
+			@Param("from") OffsetDateTime from,
+			@Param("to") OffsetDateTime to
+	);
 }

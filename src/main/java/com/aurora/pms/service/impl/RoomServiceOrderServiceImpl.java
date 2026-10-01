@@ -36,6 +36,7 @@ import com.aurora.pms.repository.OrderRepository;
 import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.GuestFolioService;
+import com.aurora.pms.service.GuestNotificationService;
 import com.aurora.pms.service.RoomServiceOrderService;
 
 @Service
@@ -56,6 +57,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	private final RoomServiceOrderInventory orderInventory;
 	private final GuestFolioService guestFolioService;
 	private final ChargeRepository chargeRepository;
+	private final GuestNotificationService guestNotificationService;
 
 	public RoomServiceOrderServiceImpl(
 			ProductRepository productRepository,
@@ -66,7 +68,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			RoomServiceMapper roomServiceMapper,
 			RoomServiceOrderInventory orderInventory,
 			GuestFolioService guestFolioService,
-			ChargeRepository chargeRepository
+			ChargeRepository chargeRepository,
+			GuestNotificationService guestNotificationService
 	) {
 		this.productRepository = productRepository;
 		this.bookingRepository = bookingRepository;
@@ -77,6 +80,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		this.orderInventory = orderInventory;
 		this.guestFolioService = guestFolioService;
 		this.chargeRepository = chargeRepository;
+		this.guestNotificationService = guestNotificationService;
 	}
 
 	@Override
@@ -163,6 +167,14 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		order.setStatus(status);
 		order.setUpdatedAt(OffsetDateTime.now());
 		order = orderRepository.save(order);
+		guestNotificationService.createIfAbsent(
+				order.getBooking(),
+				"room_service_" + status,
+				"Room Service",
+				"Your room service order is now " + status,
+				"room_service_order",
+				order.getId()
+		);
 
 		return roomServiceMapper.toOrderResponse(order, items);
 	}

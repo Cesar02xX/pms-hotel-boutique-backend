@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.UUID;
 import javax.crypto.SecretKey;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,14 @@ public class JwtService {
 	}
 
 	public String generateAccessToken(UserDetails userDetails) {
+		return generateAccessToken(userDetails, "staff", userDetails.getUsername());
+	}
+
+	public String generateGuestAccessToken(GuestPrincipal guestPrincipal) {
+		return generateAccessToken(guestPrincipal, "guest", guestPrincipal.bookingId().toString());
+	}
+
+	private String generateAccessToken(UserDetails userDetails, String tokenType, String subject) {
 		Instant now = Instant.now();
 		Instant expiration = now.plusMillis(jwtProperties.getAccessExpiration());
 		List<String> authorities = userDetails.getAuthorities().stream()
@@ -33,8 +42,9 @@ public class JwtService {
 				.toList();
 
 		return Jwts.builder()
-				.subject(userDetails.getUsername())
+				.subject(subject)
 				.claim("authorities", authorities)
+				.claim("type", tokenType)
 				.issuedAt(Date.from(now))
 				.expiration(Date.from(expiration))
 				.signWith(signingKey)
@@ -45,10 +55,28 @@ public class JwtService {
 		return extractAllClaims(token).getSubject();
 	}
 
+	public String extractType(String token) {
+		return extractAllClaims(token).get("type", String.class);
+	}
+
+	public UUID extractGuestBookingId(String token) {
+		return UUID.fromString(extractUsername(token));
+	}
+
 	public boolean isTokenValid(String token, UserDetails userDetails) {
 		try {
 			String username = extractUsername(token);
 			return username.equals(userDetails.getUsername()) && !isTokenExpired(token);
+		} catch (JwtException | IllegalArgumentException exception) {
+			return false;
+		}
+	}
+
+	public boolean isGuestTokenValid(String token, GuestPrincipal guestPrincipal) {
+		try {
+			return "guest".equals(extractType(token))
+					&& extractGuestBookingId(token).equals(guestPrincipal.bookingId())
+					&& !isTokenExpired(token);
 		} catch (JwtException | IllegalArgumentException exception) {
 			return false;
 		}

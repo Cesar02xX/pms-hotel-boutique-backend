@@ -9,6 +9,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -21,10 +22,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 	private final JwtService jwtService;
 	private final CustomUserDetailsService customUserDetailsService;
+	private final GuestPrincipalService guestPrincipalService;
 
 	public JwtAuthenticationFilter(JwtService jwtService, CustomUserDetailsService customUserDetailsService) {
+		this(jwtService, customUserDetailsService, null);
+	}
+
+	@Autowired
+	public JwtAuthenticationFilter(
+			JwtService jwtService,
+			CustomUserDetailsService customUserDetailsService,
+			GuestPrincipalService guestPrincipalService
+	) {
 		this.jwtService = jwtService;
 		this.customUserDetailsService = customUserDetailsService;
+		this.guestPrincipalService = guestPrincipalService;
 	}
 
 	@Override
@@ -41,6 +53,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 		}
 
 		try {
+			String tokenType = jwtService.extractType(jwt);
+			if ("guest".equals(tokenType)) {
+				if (guestPrincipalService == null) {
+					filterChain.doFilter(request, response);
+					return;
+				}
+				GuestPrincipal guestPrincipal = guestPrincipalService.loadByBookingId(jwtService.extractGuestBookingId(jwt));
+				if (jwtService.isGuestTokenValid(jwt, guestPrincipal)) {
+					UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+							guestPrincipal,
+							null,
+							guestPrincipal.getAuthorities()
+					);
+					authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+					SecurityContextHolder.getContext().setAuthentication(authentication);
+				}
+				filterChain.doFilter(request, response);
+				return;
+			}
+
 			String email = jwtService.extractUsername(jwt);
 			UserDetails userDetails = customUserDetailsService.loadUserByUsername(email);
 
