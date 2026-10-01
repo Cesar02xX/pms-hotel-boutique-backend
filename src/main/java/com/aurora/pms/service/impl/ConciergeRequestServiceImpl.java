@@ -28,6 +28,7 @@ import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.ConciergeRequestService;
+import com.aurora.pms.service.GuestNotificationService;
 
 /**
  * Solo gestiona ServiceRequest de tipo concierge: una solicitud de otro tipo
@@ -56,19 +57,22 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 	private final UserRepository userRepository;
 	private final ConciergeRequestMapper conciergeRequestMapper;
 	private final Clock clock;
+	private final GuestNotificationService guestNotificationService;
 
 	public ConciergeRequestServiceImpl(
 			ServiceRequestRepository serviceRequestRepository,
 			BookingRepository bookingRepository,
 			UserRepository userRepository,
 			ConciergeRequestMapper conciergeRequestMapper,
-			Clock clock
+			Clock clock,
+			GuestNotificationService guestNotificationService
 	) {
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.bookingRepository = bookingRepository;
 		this.userRepository = userRepository;
 		this.conciergeRequestMapper = conciergeRequestMapper;
 		this.clock = clock;
+		this.guestNotificationService = guestNotificationService;
 	}
 
 	@Override
@@ -151,7 +155,16 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 		serviceRequest.setNotes(appendNotes(serviceRequest.getNotes(), trimToNull(request.notes())));
 		serviceRequest.setUpdatedAt(OffsetDateTime.now(clock));
 
-		return conciergeRequestMapper.toResponse(serviceRequestRepository.save(serviceRequest));
+		serviceRequest = serviceRequestRepository.save(serviceRequest);
+		guestNotificationService.createIfAbsent(
+				serviceRequest.getBooking(),
+				"concierge_" + target,
+				"Concierge",
+				"Your concierge request is now " + target,
+				"concierge_request",
+				serviceRequest.getId()
+		);
+		return conciergeRequestMapper.toResponse(serviceRequest);
 	}
 
 	private User findResponsibleUser(UUID userId) {

@@ -77,6 +77,19 @@ implementadas en Java.
   - Expiraciones configurables: access token de 30 min y refresh token de
     7 días por defecto.
 
+### Acceso de huésped (`/guest/auth/link`, `/guest/**`)
+- El login de personal se mantiene separado del acceso de huésped. El huésped
+  no recibe permisos de empleado; su JWT solo lleva `ROLE_GUEST`.
+- `POST /guest/auth/link` acepta `guestLinkCode` y emite access token cuando
+  la reserva está `checked_in` y la fecha actual cae dentro de la estadía
+  (`checkIn <= hoy < checkOut`).
+- Códigos inexistentes, vencidos, aún no activos o no utilizables responden
+  `400`.
+- Todas las rutas `/guest/**` derivan la reserva desde el JWT. El cliente no
+  puede consultar o modificar recursos de otra estadía cambiando IDs.
+- `GET /guest/stay` devuelve reserva, huésped titular, habitación, tipo de
+  habitación, fechas, estado, saldo de folio y moneda.
+
 ---
 
 ## 2. Tipos de habitación (`/room-types`)
@@ -445,6 +458,15 @@ implementadas en Java.
 - **Historial:** los movimientos nunca se borran ni se editan. Los errores se
   corrigen con movimientos compensatorios.
 
+### Administración (`/admin/inventory/items`)
+- Permite crear y editar metadatos de `InventoryItem`: `sku`, `name`,
+  `description`, `category`, `unit`, `minimumQuantity`, producto vinculado y
+  bandera `active`.
+- `currentQuantity` no se edita por CRUD. Inicia en 0 y cambia solo mediante
+  movimientos trazables o integraciones internas como Room Service.
+- Desactivar un artículo evita movimientos manuales nuevos, pero no borra
+  historial ni modifica stock.
+
 ## 15. Housekeeping (`/housekeeping/rooms`)
 
 - **Listado (`GET`):** todas las habitaciones ordenadas por numero, con
@@ -573,9 +595,69 @@ implementadas en Java.
     cargo quede ligado a dos pedidos.
   - Crear o aceptar un pedido no genera cargos.
 
+### Catálogo administrativo (`/admin/room-service/products`)
+- Permite listar, crear y editar productos de Room Service sin alterar pedidos
+  históricos.
+- El precio se guarda en centavos (`priceCents`), la moneda permanece `GTQ` y
+  `active=false` oculta el producto del menú operativo/de huésped.
+
 ---
 
-## 17. Decisiones acordadas pendientes de implementación
+## 17. Portal huésped, amenidades y notificaciones
+
+### Room Service huésped (`/guest/room-service/orders`)
+- El huésped consulta solo pedidos de su estadía.
+- Al crear un pedido, el backend inyecta el `bookingId` desde el JWT; el body
+  no acepta una reserva arbitraria.
+- El huésped puede cancelar usando las mismas reglas del flujo actual de Room
+  Service. Un pedido ajeno responde `403`.
+
+### Solicitudes del huésped
+- `/guest/housekeeping/requests` crea y consulta stayover cleanings reales
+  (`ServiceRequest.type = housekeeping`) para la habitación asignada.
+- `/guest/concierge/requests` reutiliza Conserjería (`type = concierge`) y
+  filtra siempre por la reserva del JWT.
+- Cancelar solicitudes ajenas responde `403`; cancelar estados no permitidos
+  responde `400`.
+
+### Amenidades (`/guest/amenities`, `/admin/amenities`)
+- El huésped lista y consulta solo amenidades activas.
+- Administración puede crear, editar, activar/desactivar y mantener horarios
+  (`opensAt`, `closesAt`). Si ambos horarios se envían, apertura debe ser
+  anterior a cierre.
+
+### Notificaciones (`/guest/notifications`)
+- Las notificaciones son persistentes y pertenecen a una reserva y huésped.
+- Se generan para cambios relevantes de Room Service y Conserjería, y para
+  cancelaciones de limpieza hechas desde el portal huésped.
+- El huésped lista solo las propias, consulta contador de no leídas y marca
+  como leída. El backend evita duplicados por `booking + resource + type`.
+
+## 18. Administración, reportes y auditoría
+
+### Usuarios, roles y permisos (`/admin/users`, `/admin/roles`)
+- Administración lista, crea y edita usuarios de personal. Las respuestas no
+  exponen `passwordHash`.
+- Crear usuario requiere contraseña; se guarda cifrada con BCrypt.
+- Editar permite datos básicos, estado y rol. No cambia credenciales desde el
+  endpoint general.
+- `/admin/roles` devuelve roles con sus permisos asociados.
+
+### Promociones (`/admin/promotions`)
+- Permite listar, crear y editar promociones con código, nombre, porcentaje,
+  vigencia y bandera `active`.
+- `discountPercent` debe estar entre 1 y 100, y `validTo` no puede ser anterior
+  a `validFrom`.
+
+### Comprobante, reportes y auditoría
+- `/admin/bookings/{bookingId}/receipt` devuelve comprobante estructurado con
+  estadía, cargos, pagos, depósitos, saldo final y moneda.
+- `/admin/reports/operations` calcula métricas desde datos persistidos para un
+  rango de fechas.
+- `/admin/audit-logs` expone auditoría de solo lectura filtrada por rango de
+  fecha/hora. No existe endpoint normal para editar o borrar auditoría.
+
+## 19. Decisiones acordadas pendientes de implementación
 
 Esta sección documenta decisiones ya tomadas por el equipo que **todavía no
 deben leerse como comportamiento implementado**. Cuando una decisión contradice
@@ -608,12 +690,6 @@ el estado actual, se deja explícita la diferencia entre:
     folio; servicios gratuitos no generan cargos. El cargo debe generarse
     cuando corresponda confirmar o completar realmente el servicio, no
     simplemente al crear la solicitud.
-### Inventario
-- **CRUD de articulos.**
-  - Actual: no existe; los articulos solo se pueden crear por SQL.
-  - Acordado: queda fuera de estas decisiones y requerira ticket especifico si
-    se necesita administrar articulos desde la API.
-
 ### Room Service
 - **Referencias del body.**
   - Actual: si no existen el `bookingId` o un `productId` del body, o el

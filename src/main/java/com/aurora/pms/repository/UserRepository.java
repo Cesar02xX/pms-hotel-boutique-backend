@@ -10,4 +10,6 @@ import com.aurora.pms.model.User;
 public interface UserRepository extends JpaRepository<User, UUID> {
 
 	Optional<User> findByEmail(String email);
+
+	boolean existsByEmailIgnoreCase(String email);
 }

@@ -261,7 +261,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 
 	private User findActor(String actorEmail) {
 		if (actorEmail == null) {
-			throw new InsufficientAuthenticationException("Authenticated user not found");
+			return null;
 		}
 		return userRepository.findByEmail(actorEmail).orElse(null);
 	}

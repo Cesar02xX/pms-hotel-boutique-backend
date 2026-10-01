@@ -21,6 +21,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
 	boolean existsByGuestLinkCode(String guestLinkCode);
 
+	Optional<Booking> findByGuestLinkCode(String guestLinkCode);
+
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select b from Booking b where b.id = :id")
 	Optional<Booking> findByIdForUpdate(@Param("id") UUID id);
