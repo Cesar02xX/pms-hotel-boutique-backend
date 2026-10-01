@@ -62,7 +62,7 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 			from Booking b
 			where b.roomType.id = :roomTypeId
 			  and b.status in :statuses
-			  and b.checkOut >= :fromDate
+			  and b.checkOut > :fromDate
 			  and (b.adults + b.children) > :capacity
 			""")
 	boolean existsActiveOrFutureOverCapacity(

@@ -13,9 +13,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -28,6 +30,7 @@ import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.jayway.jsonpath.JsonPath;
 
 class RoomTypeControllerTest extends AbstractCatalogApiTest {
@@ -224,6 +227,26 @@ class RoomTypeControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.status").value(409));
 
 		assertThat(roomTypeRepository.findById(roomType.getId()).orElseThrow().getCapacity()).isEqualTo(3);
+	}
+
+	@Test
+	void bookingCheckingOutOnReferenceDateDoesNotBlockCapacityReduction() {
+		RoomType roomType = createRoomType();
+		roomType.setCapacity(3);
+		roomType = roomTypeRepository.save(roomType);
+		Booking booking = createFutureBooking(roomType, 2, 1);
+		booking.setCheckIn(LocalDate.of(2026, 9, 29));
+		booking.setCheckOut(LocalDate.of(2026, 10, 1));
+		bookingRepository.save(booking);
+
+		boolean exists = bookingRepository.existsActiveOrFutureOverCapacity(
+				roomType.getId(),
+				Set.of(BookingStatus.pending, BookingStatus.confirmed, BookingStatus.checked_in),
+				LocalDate.of(2026, 10, 1),
+				2
+		);
+
+		assertThat(exists).isFalse();
 	}
 
 	@Test
