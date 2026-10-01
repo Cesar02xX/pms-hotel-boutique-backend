@@ -11,8 +11,10 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.aurora.pms.dto.request.CreateChargeRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderItemRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
+import com.aurora.pms.dto.response.ChargeResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.exception.BadRequestException;
@@ -24,13 +26,16 @@ import com.aurora.pms.model.OrderItem;
 import com.aurora.pms.model.Product;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.ChargeCategory;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.BookingRepository;
+import com.aurora.pms.repository.ChargeRepository;
 import com.aurora.pms.repository.OrderItemRepository;
 import com.aurora.pms.repository.OrderRepository;
 import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.service.GuestFolioService;
 import com.aurora.pms.service.RoomServiceOrderService;
 
 @Service
@@ -49,6 +54,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	private final UserRepository userRepository;
 	private final RoomServiceMapper roomServiceMapper;
 	private final RoomServiceOrderInventory orderInventory;
+	private final GuestFolioService guestFolioService;
+	private final ChargeRepository chargeRepository;
 
 	public RoomServiceOrderServiceImpl(
 			ProductRepository productRepository,
@@ -57,7 +64,9 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			OrderItemRepository orderItemRepository,
 			UserRepository userRepository,
 			RoomServiceMapper roomServiceMapper,
-			RoomServiceOrderInventory orderInventory
+			RoomServiceOrderInventory orderInventory,
+			GuestFolioService guestFolioService,
+			ChargeRepository chargeRepository
 	) {
 		this.productRepository = productRepository;
 		this.bookingRepository = bookingRepository;
@@ -66,6 +75,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		this.userRepository = userRepository;
 		this.roomServiceMapper = roomServiceMapper;
 		this.orderInventory = orderInventory;
+		this.guestFolioService = guestFolioService;
+		this.chargeRepository = chargeRepository;
 	}
 
 	@Override
@@ -145,6 +156,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			orderInventory.deduct(order, items, actor);
 		} else if (status == OrderStatus.cancelled) {
 			orderInventory.restore(order, actor);
+		} else if (status == OrderStatus.delivered) {
+			chargeToFolio(order, items, actorEmail);
 		}
 
 		order.setStatus(status);
@@ -152,6 +165,44 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		order = orderRepository.save(order);
 
 		return roomServiceMapper.toOrderResponse(order, items);
+	}
+
+	/**
+	 * Registra un único cargo por el total real del pedido en el folio abierto
+	 * de la reserva, reutilizando las reglas del Folio (404 sin folio, 400 si
+	 * no está abierto). Corre en la misma transacción que la entrega: si falla,
+	 * el pedido sigue on_the_way y no queda ningún cargo.
+	 */
+	private void chargeToFolio(Order order, List<OrderItem> items, String actorEmail) {
+		if (order.getCharge() != null) {
+			return;
+		}
+		long totalCents = calculateTotalCents(items);
+		if (totalCents <= 0) {
+			throw new BadRequestException("Room service order total must be greater than zero to be delivered");
+		}
+
+		CreateChargeRequest chargeRequest = new CreateChargeRequest(
+				"Room service order " + order.getId(),
+				1,
+				totalCents,
+				ChargeCategory.consumption,
+				null
+		);
+		ChargeResponse charge = guestFolioService.createCharge(order.getBooking().getId(), chargeRequest, actorEmail);
+		order.setCharge(chargeRepository.getReferenceById(charge.id()));
+	}
+
+	private static long calculateTotalCents(List<OrderItem> items) {
+		try {
+			long total = 0;
+			for (OrderItem item : items) {
+				total = Math.addExact(total, Math.multiplyExact(item.getQuantity().longValue(), item.getUnitPriceCents()));
+			}
+			return total;
+		} catch (ArithmeticException exception) {
+			throw new BadRequestException("Room service order total is too large");
+		}
 	}
 
 	private User findActor(String actorEmail) {

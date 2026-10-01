@@ -30,7 +30,9 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.Charge;
 import com.aurora.pms.model.Guest;
+import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.InventoryItem;
 import com.aurora.pms.model.InventoryMovement;
 import com.aurora.pms.model.Order;
@@ -40,10 +42,15 @@ import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.ChargeCategory;
+import com.aurora.pms.model.enums.ChargeStatus;
+import com.aurora.pms.model.enums.GuestAccountStatus;
 import com.aurora.pms.model.enums.InventoryMovementReason;
 import com.aurora.pms.model.enums.InventoryMovementType;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
+import com.aurora.pms.repository.ChargeRepository;
+import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.InventoryItemRepository;
 import com.aurora.pms.repository.InventoryMovementRepository;
 import com.aurora.pms.repository.OrderItemRepository;
@@ -72,9 +79,16 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private RoomServiceOrderService roomServiceOrderService;
 
+	@Autowired
+	private ChargeRepository chargeRepository;
+
+	@Autowired
+	private GuestAccountRepository guestAccountRepository;
+
 	private final List<UUID> orderIds = new ArrayList<>();
 	private final List<UUID> productIds = new ArrayList<>();
 	private final List<UUID> inventoryItemIds = new ArrayList<>();
+	private final List<UUID> folioBookingIds = new ArrayList<>();
 
 	@AfterEach
 	void cleanUpRoomServiceData() {
@@ -83,6 +97,10 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 		inventoryItemRepository.deleteAllById(inventoryItemIds);
 		orderIds.forEach(orderId -> orderItemRepository.deleteAll(orderItemRepository.findByOrderIdOrderById(orderId)));
 		orderRepository.deleteAllById(orderIds);
+		folioBookingIds.forEach(bookingId -> {
+			chargeRepository.deleteAll(chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(bookingId));
+			guestAccountRepository.findByBookingId(bookingId).ifPresent(guestAccountRepository::delete);
+		});
 		productRepository.deleteAllById(productIds);
 	}
 
@@ -250,6 +268,7 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 	void validStatusFlowReturnsOk() throws Exception {
 		Booking booking = createRoomServiceBooking();
 		Product product = createStockedProduct(1500L, 100);
+		openFolio(booking);
 		String orderId = createOrder(booking, product, 1);
 
 		updateStatusExpectingOk(orderId, "accepted");
@@ -580,6 +599,150 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 		assertThat(movementsOfOrder(orderId.toString())).hasSize(2);
 	}
 
+	// ---------- Folio
+
+	@Test
+	void deliveringPostsOneChargeWithFrozenOrderTotalAndStoresChargeId() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product burger = createStockedProduct(3500L, 10);
+		Product soda = createStockedProduct(800L, 10);
+		openFolio(booking);
+		String orderId = createOrder(booking, List.of(burger, soda), List.of(2, 3));
+		burger.setPriceCents(99999L);
+		productRepository.save(burger);
+		moveToOnTheWay(orderId);
+
+		MvcResult result = mockMvc.perform(post("/api/v1/room-service/orders/{orderId}/status", orderId)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "delivered"}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("delivered"))
+				.andExpect(jsonPath("$.totalCents").value(9400))
+				.andExpect(jsonPath("$.chargeId").exists())
+				.andReturn();
+
+		String chargeId = JsonPath.read(result.getResponse().getContentAsString(), "$.chargeId");
+		List<Charge> charges = chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(booking.getId());
+		assertThat(charges).hasSize(1);
+		Charge charge = charges.get(0);
+		assertThat(charge.getId().toString()).isEqualTo(chargeId);
+		assertThat(charge.getAmountCents()).isEqualTo(9400L);
+		assertThat(charge.getCategory()).isEqualTo(ChargeCategory.consumption);
+		assertThat(charge.getStatus()).isEqualTo(ChargeStatus.posted);
+		assertThat(charge.getDescription()).contains(orderId);
+		assertThat(guestAccountRepository.findByBookingId(booking.getId()).orElseThrow().getBalanceCents())
+				.isEqualTo(9400L);
+		assertThat(orderRepository.findById(UUID.fromString(orderId)).orElseThrow().getCharge().getId().toString())
+				.isEqualTo(chargeId);
+
+		mockMvc.perform(get("/api/v1/room-service/orders/{orderId}", orderId).with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.chargeId").value(chargeId));
+	}
+
+	@Test
+	void deliveringAgainDoesNotCreateSecondCharge() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		openFolio(booking);
+		String orderId = createOrder(booking, product, 1);
+		moveToOnTheWay(orderId);
+		updateStatusExpectingOk(orderId, "delivered");
+
+		updateStatusExpectingBadRequest(orderId, "delivered", "Room service order is already delivered");
+
+		assertThat(chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(booking.getId())).hasSize(1);
+	}
+
+	@Test
+	void deliveringWithoutFolioReturnsNotFoundAndKeepsOrderOnTheWay() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		String orderId = createOrder(booking, product, 1);
+		moveToOnTheWay(orderId);
+
+		mockMvc.perform(post("/api/v1/room-service/orders/{orderId}/status", orderId)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "delivered"}
+								"""))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.message").value(startsWith("Guest account not found")));
+
+		assertOnTheWayWithoutCharge(booking, orderId);
+	}
+
+	@Test
+	void deliveringWithClosedFolioReturnsBadRequestAndKeepsOrderOnTheWay() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		openFolio(booking);
+		String orderId = createOrder(booking, product, 1);
+		moveToOnTheWay(orderId);
+		GuestAccount account = guestAccountRepository.findByBookingId(booking.getId()).orElseThrow();
+		account.setStatus(GuestAccountStatus.closed);
+		guestAccountRepository.save(account);
+
+		updateStatusExpectingBadRequest(orderId, "delivered", "Guest account is not open");
+
+		assertOnTheWayWithoutCharge(booking, orderId);
+		assertThat(guestAccountRepository.findByBookingId(booking.getId()).orElseThrow().getBalanceCents()).isZero();
+	}
+
+	@Test
+	void zeroTotalOrderCannotBeDelivered() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product freeProduct = createStockedProduct(0L, 10);
+		openFolio(booking);
+		String orderId = createOrder(booking, freeProduct, 1);
+		moveToOnTheWay(orderId);
+
+		updateStatusExpectingBadRequest(orderId, "delivered",
+				"Room service order total must be greater than zero to be delivered");
+
+		assertOnTheWayWithoutCharge(booking, orderId);
+	}
+
+	@Test
+	void concurrentDeliveriesOfSameOrderPostOnlyOneCharge() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		openFolio(booking);
+		UUID orderId = UUID.fromString(createOrder(booking, product, 2));
+		moveToOnTheWay(orderId.toString());
+
+		List<Boolean> outcomes = runConcurrently(List.of(
+				() -> roomServiceOrderService.updateStatus(orderId, OrderStatus.delivered, null),
+				() -> roomServiceOrderService.updateStatus(orderId, OrderStatus.delivered, null)));
+
+		assertThat(outcomes).containsExactlyInAnyOrder(true, false);
+		List<Charge> charges = chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(booking.getId());
+		assertThat(charges).hasSize(1);
+		assertThat(charges.get(0).getAmountCents()).isEqualTo(3000L);
+		assertThat(guestAccountRepository.findByBookingId(booking.getId()).orElseThrow().getBalanceCents())
+				.isEqualTo(3000L);
+	}
+
+	@Test
+	void databaseRejectsLinkingOneChargeToTwoOrders() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		openFolio(booking);
+		String deliveredId = createOrder(booking, product, 1);
+		moveToOnTheWay(deliveredId);
+		updateStatusExpectingOk(deliveredId, "delivered");
+		Charge charge = orderRepository.findById(UUID.fromString(deliveredId)).orElseThrow().getCharge();
+		Order other = orderRepository.findById(UUID.fromString(createOrder(booking, product, 1))).orElseThrow();
+
+		other.setCharge(charge);
+		assertThatThrownBy(() -> orderRepository.saveAndFlush(other))
+				.isInstanceOf(DataIntegrityViolationException.class);
+	}
+
 	@Test
 	void invalidStatusTransitionReturnsBadRequest() throws Exception {
 		Booking booking = createRoomServiceBooking();
@@ -690,6 +853,25 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isCreated())
 				.andReturn();
 		return trackCreatedOrder(result).toString();
+	}
+
+	private void openFolio(Booking booking) throws Exception {
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/folio/open", booking.getId()).with(staffUser()))
+				.andExpect(status().isCreated());
+		folioBookingIds.add(booking.getId());
+	}
+
+	private void moveToOnTheWay(String orderId) throws Exception {
+		for (String status : List.of("accepted", "preparing", "ready", "on_the_way")) {
+			updateStatusExpectingOk(orderId, status);
+		}
+	}
+
+	private void assertOnTheWayWithoutCharge(Booking booking, String orderId) {
+		Order order = orderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+		assertThat(order.getStatus()).isEqualTo(OrderStatus.on_the_way);
+		assertThat(order.getCharge()).isNull();
+		assertThat(chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(booking.getId())).isEmpty();
 	}
 
 	/** Producto activo con exactamente un artículo de inventario activo vinculado. */

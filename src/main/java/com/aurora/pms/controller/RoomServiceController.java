@@ -108,13 +108,15 @@ public class RoomServiceController {
 			description = "Allowed flow: pending -> accepted -> preparing -> ready -> on_the_way -> delivered. "
 					+ "Orders can be cancelled from pending, accepted, preparing or ready; "
 					+ "pending can also be rejected. Accepting deducts inventory; cancelling after "
-					+ "acceptance restores it.")
+					+ "acceptance restores it. Delivering posts one charge with the order total to the "
+					+ "booking's open guest folio.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Order status updated"),
 			@ApiResponse(responseCode = "400",
-					description = "Invalid status transition, missing inventory item or insufficient stock",
+					description = "Invalid status transition, missing inventory item, insufficient stock, "
+							+ "guest folio not open or order total of zero",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-			@ApiResponse(responseCode = "404", description = "Order not found",
+			@ApiResponse(responseCode = "404", description = "Order or guest folio not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
 	})
 	public ResponseEntity<RoomServiceOrderResponse> updateStatus(

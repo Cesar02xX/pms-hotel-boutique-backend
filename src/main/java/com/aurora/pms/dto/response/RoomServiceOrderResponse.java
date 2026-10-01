@@ -16,6 +16,7 @@ public record RoomServiceOrderResponse(
 		String currency,
 		Long totalCents,
 		List<RoomServiceOrderItemResponse> items,
+		UUID chargeId,
 		OffsetDateTime requestedAt,
 		OffsetDateTime createdAt,
 		OffsetDateTime updatedAt
