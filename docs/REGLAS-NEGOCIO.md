@@ -26,6 +26,8 @@ implementadas en Java.
     o UUID inválido en la ruta.
   - `404`: el recurso principal de la ruta no existe.
   - `401`: sin autenticación.
+  - `409`: conflicto con datos existentes (por ahora, huéspedes duplicados;
+    ver sección 6).
   - `500`: error inesperado (mensaje genérico, sin detalles internos).
 - **Referencias en el body:** cuando un ID enviado en el body no existe (por
   ejemplo `roomTypeId` al crear una habitación), la respuesta es `400`, no
@@ -117,6 +119,16 @@ implementadas en Java.
   tener formato válido.
 - `createdAt` nunca cambia al actualizar.
 - Listado ordenado por apellido y nombre.
+- **Unicidad** (al crear y al actualizar; en la actualización no se compara
+  al huésped consigo mismo). Un duplicado responde `409`:
+  - `email` único cuando se informa. La comparación no distingue mayúsculas
+    de minúsculas.
+  - La combinación `documentType + documentNumber` es única cuando ambos se
+    informan. El mismo número con otro tipo de documento sí se permite.
+  - Los opcionales vacíos o solo con espacios se guardan como `null` y pueden
+    repetirse sin generar duplicados.
+  - La base de datos lo refuerza con índices únicos parciales
+    (`ux_guests_email`, `ux_guests_document`).
 
 ## 7. Reservas (`/bookings`)
 
@@ -453,15 +465,6 @@ el estado actual, se deja explícita la diferencia entre:
     que ya superan la nueva capacidad.
   - Acordado: no permitir reducir la capacidad si deja reservas activas o
     futuras existentes por encima de la nueva capacidad.
-
-### Huéspedes
-- **Duplicados.**
-  - Actual: no se valida unicidad de email ni de documento.
-  - Acordado: no permitir huéspedes duplicados por email cuando exista email.
-    La combinación `documentType + documentNumber` debe ser única cuando exista
-    documento. Los campos pueden continuar siendo opcionales si actualmente lo
-    son; varios registros pueden tener `NULL`, pero no repetir un valor real.
-    Un intento de duplicado debe producir `409 Conflict`.
 
 ### Reservas, check-in y checkout
 - **Estado editable libremente.**
