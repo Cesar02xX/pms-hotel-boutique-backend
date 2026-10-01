@@ -20,6 +20,7 @@ import com.aurora.pms.dto.request.UpdateBookingRequest;
 import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.CheckInResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.BookingMapper;
 import com.aurora.pms.mapper.CheckInMapper;
@@ -152,6 +153,7 @@ public class BookingServiceImpl implements BookingService {
 	@Transactional
 	public BookingResponse update(UUID id, UpdateBookingRequest request) {
 		Booking booking = getBooking(id);
+		validateGeneralUpdateAllowed(booking, request);
 
 		if (request.guestId() != null) {
 			booking.setGuest(getGuest(request.guestId()));
@@ -221,8 +223,8 @@ public class BookingServiceImpl implements BookingService {
 			RoomType roomType,
 			Room room,
 			Rate rate,
-			java.time.LocalDate checkIn,
-			java.time.LocalDate checkOut,
+			LocalDate checkIn,
+			LocalDate checkOut,
 			Integer adults,
 			Integer children
 	) {
@@ -241,13 +243,58 @@ public class BookingServiceImpl implements BookingService {
 		if (room != null && !room.getRoomType().getId().equals(roomType.getId())) {
 			throw new BadRequestException("Room does not belong to room type: " + roomType.getId());
 		}
+		if (room != null && (room.getStatus() == RoomStatus.maintenance
+				|| room.getStatus() == RoomStatus.out_of_service)) {
+			throw new BadRequestException("Room is not operable for booking assignment");
+		}
 		if (rate != null && !rate.getRoomType().getId().equals(roomType.getId())) {
 			throw new BadRequestException("Rate does not belong to room type: " + roomType.getId());
 		}
+		validateRate(rate, checkIn, checkOut);
 	}
 
-	private void validateRoomAvailability(UUID bookingId, Room room, java.time.LocalDate checkIn,
-			java.time.LocalDate checkOut) {
+	private void validateGeneralUpdateAllowed(Booking booking, UpdateBookingRequest request) {
+		if (request.status() != null) {
+			throw new BadRequestException("Booking status cannot be changed through the general update endpoint");
+		}
+		if (booking.getStatus() == BookingStatus.checked_in && hasStructuralChanges(request)) {
+			throw new ConflictException(
+					"Checked-in bookings cannot be structurally modified through the general update endpoint");
+		}
+	}
+
+	private boolean hasStructuralChanges(UpdateBookingRequest request) {
+		return request.guestId() != null
+				|| request.roomTypeId() != null
+				|| request.roomId() != null
+				|| request.rateId() != null
+				|| request.checkIn() != null
+				|| request.checkOut() != null
+				|| request.adults() != null
+				|| request.children() != null;
+	}
+
+	private void validateRate(Rate rate, LocalDate checkIn, LocalDate checkOut) {
+		if (rate == null) {
+			return;
+		}
+		if (!Boolean.TRUE.equals(rate.getActive())) {
+			throw new BadRequestException("Rate is not active");
+		}
+		if (checkIn.isBefore(rate.getValidFrom())) {
+			throw new BadRequestException("Rate is not valid for the requested stay dates");
+		}
+		LocalDate lastNight = checkOut.minusDays(1);
+		if (rate.getValidTo() != null && lastNight.isAfter(rate.getValidTo())) {
+			throw new BadRequestException("Rate is not valid for the requested stay dates");
+		}
+		long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
+		if (nights < rate.getMinimumNights()) {
+			throw new BadRequestException("Stay does not meet the rate minimum nights");
+		}
+	}
+
+	private void validateRoomAvailability(UUID bookingId, Room room, LocalDate checkIn, LocalDate checkOut) {
 		if (room == null) {
 			return;
 		}
@@ -319,7 +366,7 @@ public class BookingServiceImpl implements BookingService {
 		}
 	}
 
-	private long calculateTotalAmountCents(Rate rate, java.time.LocalDate checkIn, java.time.LocalDate checkOut) {
+	private long calculateTotalAmountCents(Rate rate, LocalDate checkIn, LocalDate checkOut) {
 		if (rate == null) {
 			return 0L;
 		}

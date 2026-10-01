@@ -141,6 +141,11 @@ implementadas en Java.
   habitación.
 - **Coherencia:** la habitación y la tarifa, si se envían, deben pertenecer al
   mismo tipo de habitación de la reserva.
+- **Tarifas:** si se envía tarifa, debe estar activa, pertenecer al tipo de
+  habitación de la reserva, cubrir las noches de la estadía y cumplir
+  `minimumNights`.
+- **Habitaciones operables:** no se puede asignar a una reserva una habitación
+  con estado operativo `maintenance` u `out_of_service`.
 - **Disponibilidad:** una habitación no puede tener dos reservas activas
   (`pending`, `confirmed`, `checked_in`) con fechas que se crucen. El día de
   salida de una reserva puede ser el de entrada de la siguiente.
@@ -152,6 +157,11 @@ implementadas en Java.
   (sin 0/O ni 1/I).
 - La actualización es parcial y todas las validaciones se aplican de nuevo
   sobre el resultado final.
+- `PUT /bookings/{id}` no permite cambiar `status`; los cambios importantes de
+  estado se hacen mediante operaciones específicas.
+- Una reserva `checked_in` no admite modificaciones estructurales por el
+  `PUT` general (huésped, tipo, habitación, tarifa, fechas u ocupantes). Esas
+  operaciones quedan reservadas para flujos específicos futuros.
 
 ### Check-in (`POST /bookings/{id}/check-in`)
 - Solo reservas en estado `confirmed`. Si ya está `checked_in`, se responde
@@ -467,28 +477,6 @@ el estado actual, se deja explícita la diferencia entre:
     futuras existentes por encima de la nueva capacidad.
 
 ### Reservas, check-in y checkout
-- **Estado editable libremente.**
-  - Actual: `PUT /bookings/{id}` acepta `status` sin validar transiciones.
-  - Acordado: no permitir modificar libremente el estado de una reserva
-    mediante el `PUT` general. Los cambios importantes de estado deben
-    realizarse mediante operaciones específicas.
-- **Validaciones de tarifa al crear o actualizar.**
-  - Actual: al reservar no se valida que la tarifa esté activa, vigente para
-    las fechas de estadía ni que cumpla `minimumNights`.
-  - Acordado: validar que la tarifa esté activa, que corresponda al tipo de
-    habitación y fechas, y que se cumplan las noches mínimas.
-- **Habitaciones no operables.**
-  - Actual: una habitación en `maintenance` u `out_of_service` se puede asignar
-    a una reserva; solo se bloquea en el check-in.
-  - Acordado: no permitir asignar una habitación que esté en `maintenance` u
-    `out_of_service`.
-- **Edición después del check-in.**
-  - Actual: una reserva `checked_in` se puede editar sin restricciones
-    estructurales adicionales.
-  - Acordado: después del check-in, bloquear modificaciones estructurales
-    normales de la reserva. Cambios especiales como extensión de estancia o
-    cambio de habitación deberán implementarse posteriormente mediante
-    operaciones específicas.
 - **Check-in.**
   - Actual: el check-in ya es una operación específica, usa la fecha del hotel
     en `America/Guatemala` y solo permite check-in dentro de la estadía.
