@@ -22,6 +22,8 @@ import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.RoomStatus;
 import com.jayway.jsonpath.JsonPath;
 
 class BookingControllerTest extends AbstractCatalogApiTest {
@@ -137,7 +139,7 @@ class BookingControllerTest extends AbstractCatalogApiTest {
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
 								{"checkIn": "2026-03-20", "checkOut": "2026-03-23",
-								 "adults": 2, "children": 0, "status": "confirmed", "notes": "Updated"}
+								 "adults": 2, "children": 0, "notes": "Updated"}
 								"""))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.id").value(booking.getId().toString()))
@@ -152,12 +154,53 @@ class BookingControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void updateBookingRejectsStatusChanges() throws Exception {
+		Booking booking = createBookingFixture();
+
+		mockMvc.perform(put("/api/v1/bookings/{id}", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\": \"cancelled\"}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value(400));
+	}
+
+	@Test
+	void updateCheckedInBookingRejectsStructuralChanges() throws Exception {
+		Booking booking = createBookingFixture();
+		booking.setStatus(BookingStatus.checked_in);
+		bookingRepository.save(booking);
+
+		mockMvc.perform(put("/api/v1/bookings/{id}", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"checkOut\": \"2026-03-13\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
 	void updateMissingBookingReturnsNotFound() throws Exception {
 		mockMvc.perform(put("/api/v1/bookings/{id}", UUID.randomUUID())
 						.with(staffUser())
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"notes\": \"Missing\"}"))
 				.andExpect(status().isNotFound());
+	}
+
+	@Test
+	void updateBookingWithInactiveRateReturnsBadRequest() throws Exception {
+		Booking booking = createBookingFixture();
+		Rate inactiveRate = createRate(booking.getRoomType());
+		inactiveRate.setActive(false);
+		rateRepository.save(inactiveRate);
+
+		mockMvc.perform(put("/api/v1/bookings/{id}", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"rateId\": \"%s\"}".formatted(inactiveRate.getId())))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value(400));
 	}
 
 	@Test
@@ -253,6 +296,98 @@ class BookingControllerTest extends AbstractCatalogApiTest {
 				 "checkIn": "2026-03-11", "checkOut": "2026-03-13", "adults": 1, "children": 0}
 				""".formatted(existing.getGuest().getId(), existing.getRoomType().getId(),
 				existing.getRoom().getId(), existing.getRate().getId()));
+	}
+
+	@Test
+	void createBookingWithActiveRateValidForStayReturnsCreated() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Rate rate = createRate(roomType);
+
+		MvcResult result = mockMvc.perform(post("/api/v1/bookings")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"guestId": "%s", "roomTypeId": "%s", "rateId": "%s",
+								 "checkIn": "2026-03-15", "checkOut": "2026-03-18",
+								 "adults": 1, "children": 0}
+								""".formatted(guest.getId(), roomType.getId(), rate.getId())))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.rateId").value(rate.getId().toString()))
+				.andExpect(jsonPath("$.totalAmountCents").value(135000))
+				.andReturn();
+
+		trackCreatedBooking(result);
+	}
+
+	@Test
+	void createBookingWithInactiveRateReturnsBadRequest() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Rate rate = createRate(roomType);
+		rate.setActive(false);
+		rateRepository.save(rate);
+
+		createBookingExpectingBadRequest("""
+				{"guestId": "%s", "roomTypeId": "%s", "rateId": "%s",
+				 "checkIn": "2026-03-15", "checkOut": "2026-03-18", "adults": 1, "children": 0}
+				""".formatted(guest.getId(), roomType.getId(), rate.getId()));
+	}
+
+	@Test
+	void createBookingWithRateOutsideValidityReturnsBadRequest() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Rate rate = createRate(roomType);
+		rate.setValidTo(LocalDate.of(2026, 3, 16));
+		rateRepository.save(rate);
+
+		createBookingExpectingBadRequest("""
+				{"guestId": "%s", "roomTypeId": "%s", "rateId": "%s",
+				 "checkIn": "2026-03-15", "checkOut": "2026-03-18", "adults": 1, "children": 0}
+				""".formatted(guest.getId(), roomType.getId(), rate.getId()));
+	}
+
+	@Test
+	void createBookingBelowRateMinimumNightsReturnsBadRequest() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Rate rate = createRate(roomType);
+		rate.setMinimumNights(4);
+		rateRepository.save(rate);
+
+		createBookingExpectingBadRequest("""
+				{"guestId": "%s", "roomTypeId": "%s", "rateId": "%s",
+				 "checkIn": "2026-03-15", "checkOut": "2026-03-18", "adults": 1, "children": 0}
+				""".formatted(guest.getId(), roomType.getId(), rate.getId()));
+	}
+
+	@Test
+	void createBookingWithMaintenanceRoomReturnsBadRequest() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Room room = createRoom(roomType);
+		room.setStatus(RoomStatus.maintenance);
+		roomRepository.save(room);
+
+		createBookingExpectingBadRequest("""
+				{"guestId": "%s", "roomTypeId": "%s", "roomId": "%s",
+				 "checkIn": "2026-03-15", "checkOut": "2026-03-18", "adults": 1, "children": 0}
+				""".formatted(guest.getId(), roomType.getId(), room.getId()));
+	}
+
+	@Test
+	void createBookingWithOutOfServiceRoomReturnsBadRequest() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Room room = createRoom(roomType);
+		room.setStatus(RoomStatus.out_of_service);
+		roomRepository.save(room);
+
+		createBookingExpectingBadRequest("""
+				{"guestId": "%s", "roomTypeId": "%s", "roomId": "%s",
+				 "checkIn": "2026-03-15", "checkOut": "2026-03-18", "adults": 1, "children": 0}
+				""".formatted(guest.getId(), roomType.getId(), room.getId()));
 	}
 
 	private Booking createBookingFixture() {
