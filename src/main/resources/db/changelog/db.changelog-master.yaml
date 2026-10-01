@@ -17,3 +17,5 @@ databaseChangeLog:
       file: db/changelog/migrations/008-security-permissions.sql
   - include:
       file: db/changelog/migrations/009-guests-uniqueness.sql
+  - include:
+      file: db/changelog/migrations/010-checkout-finance-concierge.sql

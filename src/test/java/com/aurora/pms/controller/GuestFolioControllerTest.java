@@ -191,11 +191,18 @@ class GuestFolioControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
-	void createChargeWithZeroUnitPriceIsAllowed() throws Exception {
+	void createChargeWithZeroAmountReturnsBadRequest() throws Exception {
 		Booking booking = createFolioBooking();
 		openFolio(booking);
 
-		postCharge(booking, 1, 0L);
+		mockMvc.perform(post("/api/v1/bookings/{bookingId}/charges", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"description": "Cortesia", "quantity": 1, "unitPriceCents": 0, "category": "stay"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Charge amount must be greater than zero"));
 
 		assertThat(currentAccount(booking).getBalanceCents()).isZero();
 	}

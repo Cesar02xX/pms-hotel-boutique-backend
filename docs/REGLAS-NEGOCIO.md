@@ -26,8 +26,9 @@ implementadas en Java.
     o UUID inválido en la ruta.
   - `404`: el recurso principal de la ruta no existe.
   - `401`: sin autenticación.
-  - `409`: conflicto con datos existentes (por ahora, huéspedes duplicados;
-    ver sección 6).
+  - `409`: conflicto con datos existentes o con el estado financiero de la
+    reserva, por ejemplo huéspedes duplicados, sobrepagos o checkout con saldo
+    distinto de cero.
   - `500`: error inesperado (mensaje genérico, sin detalles internos).
 - **Referencias en el body:** cuando un ID enviado en el body no existe (por
   ejemplo `roomTypeId` al crear una habitación), la respuesta es `400`, no
@@ -47,9 +48,9 @@ implementadas en Java.
 - **Entidades JPA:** nunca se exponen directamente; siempre se usan DTOs de
   request/response.
 - **Transacciones:** las operaciones que modifican datos son transaccionales.
-  Las que pueden sufrir concurrencia (check-in, folio, pagos, reembolsos,
-  caja, conserjería, inventario, housekeeping y estados de Room Service)
-  usan bloqueo pesimista de fila.
+  Las que pueden sufrir concurrencia (check-in, checkout, folio, pagos,
+  depósitos, reembolsos, caja, conserjería, inventario, housekeeping y estados
+  de Room Service) usan bloqueo pesimista de fila.
 
 ---
 
@@ -188,6 +189,18 @@ implementadas en Java.
 - Resultado: la reserva pasa a `checked_in` y la habitación a `occupied`.
 - Se bloquea la reserva para evitar dos check-ins simultáneos.
 
+### Checkout (`POST /bookings/{id}/check-out`)
+- Solo reservas en estado `checked_in`.
+- Debe existir un folio abierto para la reserva. Si no existe → `404`; si el
+  folio no está abierto → `400`.
+- El saldo del folio debe ser exactamente `0`. Cualquier saldo positivo o
+  negativo bloquea el checkout con `409`.
+- Resultado: la reserva pasa a `checked_out`, el folio queda `closed`, la
+  habitación queda operativamente `available` y su `housekeepingStatus` pasa a
+  `dirty`.
+- El checkout no limpia la habitación; solo inicia el flujo posterior de
+  Housekeeping.
+
 ## 8. Acompañantes (`/bookings/{bookingId}/companions`)
 
 - Campos obligatorios: `firstName`, `lastName` y `guestType` (`adult`/`child`).
@@ -225,9 +238,13 @@ implementadas en Java.
     (≥ 0) y `category`. `productId` es opcional y, si se envía, debe existir.
   - `amountCents = quantity × unitPriceCents`, calculado en el backend. Si el
     resultado desborda → `400`.
+  - El monto total debe ser mayor que `0`; los cargos financieros normales de
+    valor cero se rechazan con `400`.
   - Se crean con `status = posted` y suman al saldo.
 - **Anular cargo:** requiere `reason`, no se puede anular dos veces y resta
   el monto del saldo.
+- **Cierre:** el folio se cierra exclusivamente como parte del checkout de la
+  reserva.
 
 ## 10. Pagos (`/bookings/{bookingId}/payments`)
 
@@ -240,6 +257,10 @@ implementadas en Java.
   - con folio abierto, el pago resta del saldo;
   - sin folio, el pago queda pendiente y se descuenta cuando se abra;
   - con folio no abierto (cerrado) → `400`.
+- Con folio abierto, no se permiten sobrepagos: si `amountCents` supera el
+  saldo actual del folio, la respuesta es `409`.
+- No se registran pagos normales en reservas `cancelled`, `no_show` o
+  `checked_out`.
 - Se bloquea la reserva para que un pago y una apertura de folio simultáneos
   no descuadren el saldo.
 
@@ -249,13 +270,20 @@ implementadas en Java.
   opcional.
 - Se crean como `held` (retenido), con `collectedAt` igual al momento del
   registro.
-- **Los depósitos no afectan el saldo del folio:** son una garantía, no un
-  pago.
+- **Los depósitos no afectan el saldo del folio al crearse:** son una garantía,
+  no un pago.
+- No se registran depósitos normales en reservas `cancelled`, `no_show` o
+  `checked_out`.
+- **Aplicación al folio (`POST /{depositId}/apply`):** solo depósitos `held`
+  con folio abierto. Cambia el depósito a `applied`, agrega la nota
+  `Applied to folio` y reduce el saldo por el monto del depósito. La operación
+  es idempotente: repetirla sobre un depósito ya `applied` responde `200` sin
+  mover nuevamente el saldo. Un depósito `refunded` no puede aplicarse.
 - **Reembolso:** solo depósitos `held`. Si ya fue reembolsado, se responde
   `"Deposit is already refunded"`. El reembolso pasa el depósito a `refunded`,
   registra `refundedAt` y, si se envía un motivo, lo agrega a las notas como
   `Refund: <motivo>`.
-- Se bloquea el depósito para evitar dos reembolsos simultáneos.
+- Se bloquea el depósito para evitar dos reembolsos o aplicaciones simultáneas.
 
 ---
 
@@ -318,8 +346,8 @@ implementadas en Java.
     opcional.
   - La reserva debe existir. Si no existe → `400`, porque es una referencia
     en el body.
-  - No se crean solicitudes para reservas `checked_out`, `cancelled` o
-    `no_show` (`400`).
+  - Solo se crean solicitudes para reservas `confirmed` o `checked_in`; cualquier
+    otro estado responde `400`.
   - El backend fija `type = concierge` y `status = pending`, y controla
     `requestedAt`, `createdAt` y `updatedAt`.
   - La habitación y el huésped se toman de la reserva. `roomId` queda vacío si
@@ -327,18 +355,20 @@ implementadas en Java.
   - Si el cliente envía `type`, `status`, `roomId`, `guestId` o `chargeId`, se
     ignoran.
 - **Flujo de estados (`POST /{requestId}/status`):**
-  - `pending → accepted | rejected`
-  - `accepted → in_progress | rejected`
-  - `in_progress → completed`
-  - `completed` y `rejected` son **terminales**: cualquier cambio → `400`.
+  - `pending → accepted | rejected | cancelled`
+  - `accepted → in_progress | cancelled`
+  - `in_progress → completed | cancelled`
+  - `completed`, `rejected` y `cancelled` son **terminales**: cualquier cambio
+    → `400`.
   - Cualquier otra transición, incluido repetir el mismo estado → `400`.
-  - `accepted → rejected` se permite porque una solicitud aceptada puede
-    resultar imposible de cumplir (por ejemplo, un restaurante sin
-    disponibilidad).
+  - `rejected` solo puede producirse desde `pending`; si una solicitud aceptada
+    o en progreso no se realizará, se usa `cancelled`.
   - `notes` es opcional en el cambio de estado (por ejemplo, el motivo del
     rechazo) y se agrega a las notas existentes.
   - El cambio de estado bloquea la solicitud, así que dos cambios simultáneos
     no pueden saltarse el flujo.
+- **Edición (`PUT /{requestId}`):** solo solicitudes `pending`. Permite cambiar
+  `description` y/o `notes`; al menos un campo debe venir en el body.
 - **Sin cargos:** el módulo nunca crea cargos ni toca el folio; `chargeId`
   queda en `null`.
 
@@ -398,9 +428,9 @@ implementadas en Java.
   - `POST /{roomId}/complete`: `cleaning → clean`
   - `POST /{roomId}/inspect`: `clean → inspected`
   - Si la habitación no está en el estado de origen → `400`.
-- El flujo es solo de avance: no hay acción para volver a marcar una
-  habitación como `dirty` (ver sección 17, Decisiones acordadas pendientes de
-  implementación).
+- El flujo operativo normal es de avance (`dirty → cleaning → clean →
+  inspected`). El checkout es la operación que vuelve a marcar automáticamente
+  una habitación como `dirty`.
 - Solo cambia `housekeepingStatus`; el estado operativo (`status`:
   `available`, `occupied`…) no se toca.
 - Relación con el check-in: una habitación solo admite check-in si está
@@ -455,77 +485,21 @@ el estado actual, se deja explícita la diferencia entre:
 - **Actual:** comportamiento hoy implementado en el backend.
 - **Acordado:** regla que debe implementarse posteriormente.
 
-### General / seguridad
-- **Roles y permisos.**
-  - Actual: el JWT incluye rol y permisos, pero ningún endpoint los valida;
-    cualquier usuario autenticado puede operar todos los módulos.
-  - Acordado: implementar autorización real por roles/permisos en endpoints.
-    Ocultar funcionalidades en frontend no es suficiente. Un usuario
-    autenticado solo podrá ejecutar operaciones permitidas para su rol o sus
-    permisos.
-- **Códigos HTTP de negocio.**
-  - Actual: muchos conflictos de estado o duplicados responden `400`.
-  - Acordado: usar `400 Bad Request` para datos o validaciones inválidas,
-    `401 Unauthorized` para usuarios no autenticados, `403 Forbidden` para
-    usuarios autenticados sin permiso, `404 Not Found` para recursos
-    inexistentes y `409 Conflict` para operaciones válidas pero incompatibles
-    con el estado actual del recurso.
-
-### Reservas, check-in y checkout
-- **Check-in.**
-  - Actual: el check-in ya es una operación específica, usa la fecha del hotel
-    en `America/Guatemala` y solo permite check-in dentro de la estadía.
-  - Acordado: mantener el check-in como operación específica con sus
-    validaciones y mantener la fecha del hotel usando `America/Guatemala`. Por
-    ahora no implementar tolerancia especial de early/late check-in.
-- **Checkout.**
-  - Actual: no está implementado.
-  - Acordado: la reserva debe estar `checked_in`, debe existir folio abierto y
-    el saldo debe ser exactamente `Q0.00`. Si existe saldo positivo o negativo,
-    bloquear checkout. Al completar checkout: cerrar folio, cambiar reserva a
-    `checked_out`, liberar operativamente la habitación y cambiar
-    `housekeepingStatus` a `dirty`. Una habitación `dirty` no puede recibir un
-    nuevo check-in hasta completar el proceso requerido de Housekeeping.
-
-### Acompañantes
-- **Validación en check-in.**
+### Reservas y acompañantes
+- **Correcciones posteriores al check-in.**
   - Actual: el check-in valida huésped titular + acompañantes contra adultos,
-    niños y capacidad.
-  - Acordado: mantener esa validación. Correcciones posteriores al check-in
-    deberán manejarse en el futuro mediante una operación administrativa
-    controlada.
+    niños y capacidad; luego la reserva queda protegida contra cambios
+    estructurales por el endpoint general.
+  - Acordado: si se requieren correcciones posteriores al check-in, deberán
+    manejarse en el futuro mediante una operación administrativa controlada.
 
 ### Folio, pagos y depósitos
-- **Sobrepagos.**
-  - Actual: un pago puede superar el saldo pendiente y dejar saldo negativo.
-  - Acordado: no permitir sobrepagos normales. Un pago no puede superar el
-    saldo pendiente del folio. El objetivo para checkout es saldo exactamente
-    `Q0.00`.
-- **Pagos y depósitos en reservas cerradas.**
-  - Actual: se pueden registrar pagos o depósitos en reservas `cancelled`,
-    `no_show` o `checked_out` si no tienen folio.
-  - Acordado: no permitir pagos o depósitos normales sobre reservas cerradas:
-    `cancelled`, `no_show` o `checked_out`.
-- **Reembolsos.**
+- **Reembolsos de pagos.**
   - Actual: solo se pueden reembolsar depósitos; no existe flujo de reembolso
     de pagos.
-  - Acordado: los reembolsos deben implementarse como movimientos
+  - Acordado: los reembolsos de pagos deben implementarse como movimientos
     independientes. No se debe eliminar ni modificar el pago original y debe
     mantenerse trazabilidad completa.
-- **Depósitos aplicados.**
-  - Actual: existe el estado `applied`, pero ningún flujo lo usa.
-  - Acordado: dar uso al estado `applied` e implementar posteriormente una
-    operación específica para aplicar un depósito al folio. Al aplicarlo debe
-    reducir el saldo correspondiente. Un depósito aplicado no puede aplicarse
-    nuevamente.
-- **Cargos de valor cero.**
-  - Actual: se permiten cargos con `unitPriceCents = 0`.
-  - Acordado: los cargos financieros normales deben ser mayores que `Q0.00`;
-    no crear cargos de valor cero.
-- **Cierre del folio.**
-  - Actual: existe el estado `closed` pero no hay endpoint para cerrar el
-    folio.
-  - Acordado: el cierre del folio debe realizarse como parte del checkout.
 
 ### Caja
 - **Sesiones por usuario.**
@@ -554,21 +528,6 @@ el estado actual, se deja explícita la diferencia entre:
     deben realizarse mediante ajustes o movimientos trazables.
 
 ### Conserjería
-- **Reservas permitidas.**
-  - Actual: se permiten solicitudes para reservas `pending`, `confirmed` o
-    `checked_in`; no se permiten para `cancelled`, `no_show` o `checked_out`.
-  - Acordado: permitir nuevas solicitudes solo para reservas `confirmed` o
-    `checked_in`. No permitir nuevas solicitudes para `cancelled`, `no_show` o
-    `checked_out`.
-- **Flujo de estados.**
-  - Actual: `pending → accepted | rejected`, `accepted → in_progress |
-    rejected`, `in_progress → completed`; `completed` y `rejected` son
-    terminales. No existe `cancelled`.
-  - Acordado: flujo principal `pending → accepted → in_progress → completed`,
-    además `pending → rejected`. Agregar `cancelled` para solicitudes que
-    posteriormente no se realizarán. `rejected` solo debe producirse desde
-    `pending`; una solicitud ya aceptada no debe pasar a `rejected`. Si no se
-    realizará, utilizar `cancelled`.
 - **Asignación de empleados.**
   - Actual: no se registra empleado responsable.
   - Acordado: permitir asignar un empleado responsable.
@@ -579,11 +538,6 @@ el estado actual, se deja explícita la diferencia entre:
     folio; servicios gratuitos no generan cargos. El cargo debe generarse
     cuando corresponda confirmar o completar realmente el servicio, no
     simplemente al crear la solicitud.
-- **Edición de solicitud.**
-  - Actual: no se puede modificar la descripción después de creada.
-  - Acordado: permitir edición normal de la solicitud solamente mientras esté
-    `pending`.
-
 ### Inventario
 - **Fuente oficial de existencias.**
   - Actual: `InventoryItem.currentQuantity` y `Product.stockQuantity` son
@@ -615,13 +569,9 @@ el estado actual, se deja explícita la diferencia entre:
 
 ### Housekeeping
 - **Limpieza posterior al checkout.**
-  - Actual: el flujo existente es `dirty → cleaning → clean → inspected`, pero
-    el checkout no está implementado y solo `PUT /rooms/{id}` puede volver una
-    habitación a `dirty`.
-  - Acordado: diferenciar limpieza posterior al checkout con el flujo
-    `checkout → habitación available + dirty → cleaning → clean → inspected`.
-    El checkout debe marcar automáticamente la habitación como `dirty`. Una
-    habitación `dirty` no puede recibir otro check-in. No permitir saltarse
+  - Actual: el checkout deja la habitación `available + dirty`; luego
+    Housekeeping avanza `dirty → cleaning → clean → inspected`.
+  - Acordado: mantener separado el checkout de la limpieza. No permitir saltarse
     estados mediante el CRUD normal.
 - **Limpieza durante la estancia.**
   - Actual: Housekeeping opera sobre el `housekeepingStatus` de la habitación;

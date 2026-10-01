@@ -106,13 +106,17 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	@Override
 	@Transactional
 	public ChargeResponse createCharge(UUID bookingId, CreateChargeRequest request, String actorEmail) {
-		Booking booking = getBooking(bookingId);
+		Booking booking = getBookingForFolioMutation(bookingId);
+		ensureFinancialMovementsAllowed(booking);
 		GuestAccount account = balance.lockOpenAccount(bookingId);
 		Product product = request.productId() == null ? null : productRepository.findById(request.productId())
 				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + request.productId()));
 
 		Charge charge = folioMapper.toChargeEntity(request, booking, product);
 		long amountCents = calculateAmount(request.quantity(), request.unitPriceCents());
+		if (amountCents <= 0) {
+			throw new BadRequestException("Charge amount must be greater than zero");
+		}
 		OffsetDateTime now = OffsetDateTime.now();
 		charge.setAmountCents(amountCents);
 		charge.setCurrency(account.getCurrency());
@@ -186,6 +190,13 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 			return Math.multiplyExact(quantity, unitPriceCents);
 		} catch (ArithmeticException exception) {
 			throw new BadRequestException("Charge amount is too large");
+		}
+	}
+
+	private static void ensureFinancialMovementsAllowed(Booking booking) {
+		if (STATUSES_WITHOUT_FOLIO.contains(booking.getStatus())) {
+			throw new BadRequestException(
+					"Cannot create financial movements for a booking with status " + booking.getStatus());
 		}
 	}
 }

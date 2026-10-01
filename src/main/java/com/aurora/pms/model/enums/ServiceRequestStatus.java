@@ -5,5 +5,6 @@ public enum ServiceRequestStatus {
 	accepted,
 	in_progress,
 	completed,
-	rejected
+	rejected,
+	cancelled
 }

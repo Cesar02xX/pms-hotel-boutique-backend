@@ -27,15 +27,18 @@ import com.aurora.pms.mapper.CheckInMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.BookingCompanion;
 import com.aurora.pms.model.Guest;
+import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.GuestAccountStatus;
 import com.aurora.pms.model.enums.GuestType;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
 import com.aurora.pms.repository.BookingCompanionRepository;
 import com.aurora.pms.repository.BookingRepository;
+import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
 import com.aurora.pms.repository.RoomRepository;
@@ -58,6 +61,7 @@ public class BookingServiceImpl implements BookingService {
 	private final RoomTypeRepository roomTypeRepository;
 	private final RoomRepository roomRepository;
 	private final RateRepository rateRepository;
+	private final GuestAccountRepository guestAccountRepository;
 	private final BookingMapper bookingMapper;
 	private final BookingCompanionRepository companionRepository;
 	private final CheckInMapper checkInMapper;
@@ -70,6 +74,7 @@ public class BookingServiceImpl implements BookingService {
 			RoomTypeRepository roomTypeRepository,
 			RoomRepository roomRepository,
 			RateRepository rateRepository,
+			GuestAccountRepository guestAccountRepository,
 			BookingMapper bookingMapper,
 			BookingCompanionRepository companionRepository,
 			CheckInMapper checkInMapper,
@@ -81,6 +86,7 @@ public class BookingServiceImpl implements BookingService {
 		this.roomTypeRepository = roomTypeRepository;
 		this.roomRepository = roomRepository;
 		this.rateRepository = rateRepository;
+		this.guestAccountRepository = guestAccountRepository;
 		this.bookingMapper = bookingMapper;
 		this.companionRepository = companionRepository;
 		this.checkInMapper = checkInMapper;
@@ -151,6 +157,38 @@ public class BookingServiceImpl implements BookingService {
 
 	@Override
 	@Transactional
+	public BookingResponse checkOut(UUID id) {
+		Booking booking = getBookingForCheckIn(id);
+		if (booking.getStatus() != BookingStatus.checked_in) {
+			throw new BadRequestException("Only checked-in bookings can be checked out");
+		}
+		Room room = getAssignedRoomForCheckOut(booking);
+		GuestAccount account = guestAccountRepository.findByBookingIdForUpdate(id)
+				.orElseThrow(() -> GuestAccountBalance.accountNotFound(id));
+		if (account.getStatus() != GuestAccountStatus.open) {
+			throw new BadRequestException("Guest account is not open");
+		}
+		if (account.getBalanceCents() != 0L) {
+			throw new ConflictException("Guest account balance must be zero before checkout");
+		}
+
+		OffsetDateTime now = OffsetDateTime.now(clock);
+		account.setStatus(GuestAccountStatus.closed);
+		account.setClosedAt(now);
+		account.setUpdatedAt(now);
+		booking.setStatus(BookingStatus.checked_out);
+		booking.setUpdatedAt(now);
+		room.setStatus(RoomStatus.available);
+		room.setHousekeepingStatus(RoomHousekeepingStatus.dirty);
+		room.setUpdatedAt(now);
+
+		guestAccountRepository.save(account);
+		roomRepository.save(room);
+		return bookingMapper.toResponse(bookingRepository.save(booking));
+	}
+
+	@Override
+	@Transactional
 	public BookingResponse update(UUID id, UpdateBookingRequest request) {
 		Booking booking = getBooking(id);
 		validateGeneralUpdateAllowed(booking, request);
@@ -208,6 +246,15 @@ public class BookingServiceImpl implements BookingService {
 	private Room getAssignedRoom(Booking booking) {
 		if (booking.getRoom() == null) {
 			throw new BadRequestException("Booking must have an assigned room before check-in");
+		}
+		UUID roomId = booking.getRoom().getId();
+		return roomRepository.findById(roomId)
+				.orElseThrow(() -> new ResourceNotFoundException("Room not found: " + roomId));
+	}
+
+	private Room getAssignedRoomForCheckOut(Booking booking) {
+		if (booking.getRoom() == null) {
+			throw new BadRequestException("Booking must have an assigned room before check-out");
 		}
 		UUID roomId = booking.getRoom().getId();
 		return roomRepository.findById(roomId)

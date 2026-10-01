@@ -10,6 +10,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -122,8 +123,8 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@ParameterizedTest
-	@EnumSource(value = BookingStatus.class, names = {"checked_out", "cancelled", "no_show"})
-	void createForClosedBookingReturnsBadRequest(BookingStatus bookingStatus) throws Exception {
+	@EnumSource(value = BookingStatus.class, names = {"pending", "checked_out", "cancelled", "no_show"})
+	void createForDisallowedBookingStatusReturnsBadRequest(BookingStatus bookingStatus) throws Exception {
 		Booking booking = createConciergeBooking();
 		booking.setStatus(bookingStatus);
 		bookingRepository.save(booking);
@@ -318,8 +319,10 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 		return Stream.of(
 				Arguments.of(List.of(), "accepted"),
 				Arguments.of(List.of(), "rejected"),
+				Arguments.of(List.of(), "cancelled"),
 				Arguments.of(List.of("accepted"), "in_progress"),
-				Arguments.of(List.of("accepted"), "rejected"),
+				Arguments.of(List.of("accepted"), "cancelled"),
+				Arguments.of(List.of("accepted", "in_progress"), "cancelled"),
 				Arguments.of(List.of("accepted", "in_progress"), "completed")
 		);
 	}
@@ -348,6 +351,7 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				Arguments.of(List.of("accepted"), "accepted"),
 				Arguments.of(List.of("accepted"), "pending"),
 				Arguments.of(List.of("accepted"), "completed"),
+				Arguments.of(List.of("accepted"), "rejected"),
 				Arguments.of(List.of("accepted", "in_progress"), "rejected"),
 				Arguments.of(List.of("accepted", "in_progress"), "pending"),
 				Arguments.of(List.of("accepted", "in_progress"), "accepted")
@@ -378,7 +382,8 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	static Stream<Arguments> terminalStates() {
 		return Stream.of(
 				Arguments.of(List.of("accepted", "in_progress", "completed"), "completed"),
-				Arguments.of(List.of("rejected"), "rejected")
+				Arguments.of(List.of("rejected"), "rejected"),
+				Arguments.of(List.of("cancelled"), "cancelled")
 		);
 	}
 
@@ -418,6 +423,36 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.message").value("Malformed or invalid request body"));
 	}
 
+	@Test
+	void updatePendingRequestChangesDescriptionAndNotes() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Solicitud");
+
+		mockMvc.perform(put(BASE_PATH + "/{requestId}", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"description": " Tour privado ", "notes": " Ventana 10:00 "}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.description").value("Tour privado"))
+				.andExpect(jsonPath("$.notes").value("Ventana 10:00"));
+	}
+
+	@Test
+	void updateNonPendingRequestReturnsBadRequest() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Solicitud");
+		changeStatus(id, "accepted");
+
+		mockMvc.perform(put(BASE_PATH + "/{requestId}", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"description": "Tour privado"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Only pending concierge requests can be edited"));
+	}
+
 	// ---------- Security
 
 	static Stream<Arguments> conciergeEndpoints() {
@@ -426,7 +461,8 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				Arguments.of(HttpMethod.GET, BASE_PATH),
 				Arguments.of(HttpMethod.GET, BASE_PATH + "/" + id),
 				Arguments.of(HttpMethod.POST, BASE_PATH),
-				Arguments.of(HttpMethod.POST, BASE_PATH + "/" + id + "/status")
+				Arguments.of(HttpMethod.POST, BASE_PATH + "/" + id + "/status"),
+				Arguments.of(HttpMethod.PUT, BASE_PATH + "/" + id)
 		);
 	}
 

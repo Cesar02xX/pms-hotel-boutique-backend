@@ -8,12 +8,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.aurora.pms.dto.request.CreateConciergeRequestRequest;
+import com.aurora.pms.dto.request.UpdateConciergeRequestRequest;
 import com.aurora.pms.dto.request.UpdateConciergeRequestStatusRequest;
 import com.aurora.pms.dto.response.ApiErrorResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
@@ -88,8 +90,8 @@ public class ConciergeRequestController {
 
 	@PostMapping("/{requestId}/status")
 	@Operation(summary = "Change the status of a concierge request",
-			description = "Allowed: pending -> accepted | rejected, accepted -> in_progress | rejected, "
-					+ "in_progress -> completed. completed and rejected are terminal. "
+			description = "Allowed: pending -> accepted | rejected | cancelled, accepted -> in_progress | cancelled, "
+					+ "in_progress -> completed | cancelled. completed, rejected and cancelled are terminal. "
 					+ "Optional notes are appended to the existing notes.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Status changed"),
@@ -103,5 +105,21 @@ public class ConciergeRequestController {
 			@Valid @RequestBody UpdateConciergeRequestStatusRequest request
 	) {
 		return ResponseEntity.ok(conciergeRequestService.updateStatus(requestId, request));
+	}
+
+	@PutMapping("/{requestId}")
+	@Operation(summary = "Edit a pending concierge request")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Concierge request updated"),
+			@ApiResponse(responseCode = "400", description = "Invalid request or request is not pending",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Not found or not a concierge request",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<ConciergeRequestResponse> update(
+			@PathVariable UUID requestId,
+			@Valid @RequestBody UpdateConciergeRequestRequest request
+	) {
+		return ResponseEntity.ok(conciergeRequestService.update(requestId, request));
 	}
 }
