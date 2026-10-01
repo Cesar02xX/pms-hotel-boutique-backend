@@ -5,11 +5,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyIterable;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
@@ -29,11 +34,14 @@ import com.aurora.pms.dto.request.CreateRoomTypeRequest;
 import com.aurora.pms.dto.request.UpdateRoomTypeRequest;
 import com.aurora.pms.dto.response.RoomTypeResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.mapper.RoomTypeMapper;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.RoomTypeFeature;
 import com.aurora.pms.model.RoomTypeFeatureId;
+import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
 import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
@@ -42,6 +50,8 @@ import com.aurora.pms.repository.RoomTypeRepository;
 class RoomTypeServiceImplTest {
 
 	private static final OffsetDateTime CREATED_AT = OffsetDateTime.of(2026, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+	private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-10-01T06:00:00Z"),
+			ZoneId.of("America/Guatemala"));
 
 	@Mock
 	private RoomTypeRepository roomTypeRepository;
@@ -51,6 +61,9 @@ class RoomTypeServiceImplTest {
 
 	@Mock
 	private RoomTypeFeatureRepository roomTypeFeatureRepository;
+
+	@Mock
+	private BookingRepository bookingRepository;
 
 	@Captor
 	private ArgumentCaptor<List<RoomTypeFeature>> associationsCaptor;
@@ -63,7 +76,10 @@ class RoomTypeServiceImplTest {
 				roomTypeRepository,
 				roomFeatureRepository,
 				roomTypeFeatureRepository,
-				new RoomTypeMapper()
+				bookingRepository,
+				new RoomTypeMapper(),
+				CLOCK,
+				"America/Guatemala"
 		);
 	}
 
@@ -155,6 +171,40 @@ class RoomTypeServiceImplTest {
 		assertThat(roomType.getCapacity()).isEqualTo(3);
 		verify(roomTypeFeatureRepository, never()).deleteAll(anyIterable());
 		verify(roomTypeFeatureRepository, never()).saveAll(anyIterable());
+	}
+
+	@Test
+	void updateAllowsCapacityReductionWhenNoActiveOrFutureBookingExceedsIt() {
+		RoomType roomType = roomType();
+		roomType.setCapacity(4);
+		when(roomTypeRepository.findById(roomType.getId())).thenReturn(Optional.of(roomType));
+		when(bookingRepository.existsActiveOrFutureOverCapacity(
+				any(), anyCollection(), any(LocalDate.class), anyInt()))
+				.thenReturn(false);
+		when(roomTypeRepository.save(roomType)).thenReturn(roomType);
+
+		RoomTypeResponse response = roomTypeService.update(roomType.getId(), new UpdateRoomTypeRequest(
+				null, null, null, 2, null, null, null));
+
+		assertThat(response.capacity()).isEqualTo(2);
+		verify(bookingRepository).existsActiveOrFutureOverCapacity(
+				roomType.getId(), Set.of(BookingStatus.pending, BookingStatus.confirmed, BookingStatus.checked_in),
+				LocalDate.of(2026, 10, 1), 2);
+	}
+
+	@Test
+	void updateRejectsCapacityReductionBelowActiveOrFutureBookingOccupancy() {
+		RoomType roomType = roomType();
+		roomType.setCapacity(4);
+		when(roomTypeRepository.findById(roomType.getId())).thenReturn(Optional.of(roomType));
+		when(bookingRepository.existsActiveOrFutureOverCapacity(
+				any(), anyCollection(), any(LocalDate.class), anyInt()))
+				.thenReturn(true);
+
+		assertThatThrownBy(() -> roomTypeService.update(roomType.getId(), new UpdateRoomTypeRequest(
+				null, null, null, 2, null, null, null)))
+				.isInstanceOf(ConflictException.class);
+		verify(roomTypeRepository, never()).save(any());
 	}
 
 	@Test

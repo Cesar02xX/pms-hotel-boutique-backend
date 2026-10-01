@@ -184,6 +184,21 @@ class RoomControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void updateRoomRejectsHousekeepingStatusChanges() throws Exception {
+		Room room = createRoom(createRoomType());
+
+		mockMvc.perform(put("/api/v1/rooms/{id}", room.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"housekeepingStatus\": \"dirty\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+
+		assertThat(roomRepository.findById(room.getId()).orElseThrow().getHousekeepingStatus())
+				.isEqualTo(room.getHousekeepingStatus());
+	}
+
+	@Test
 	void updateMissingRoomReturnsNotFound() throws Exception {
 		mockMvc.perform(put("/api/v1/rooms/{id}", UUID.randomUUID())
 						.with(staffUser())

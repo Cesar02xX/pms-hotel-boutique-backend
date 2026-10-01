@@ -89,6 +89,9 @@ implementadas en Java.
     las que ya no están y agrega las nuevas. Si no se envía, no se tocan.
 - La actualización es parcial: solo cambian los campos enviados, y los
   campos de texto enviados no pueden estar en blanco.
+- **Reducción de capacidad:** no se permite bajar `capacity` si existen
+  reservas activas o futuras (`pending`, `confirmed`, `checked_in`) cuyo
+  `adults + children` supere la nueva capacidad. El conflicto responde `409`.
 
 ## 3. Características de habitación (`/room-features`)
 
@@ -102,6 +105,9 @@ implementadas en Java.
   `housekeepingStatus = dirty`.
 - La actualización es parcial; si se envía `roomNumber`, no puede estar en
   blanco.
+- `housekeepingStatus` no puede modificarse desde `PUT /rooms/{id}`. Los
+  cambios de limpieza deben pasar por Housekeeping; intentarlo desde el CRUD
+  normal responde `409`.
 
 ## 5. Tarifas (`/rates`)
 
@@ -110,6 +116,9 @@ implementadas en Java.
 - `currency` solo acepta `GTQ`.
 - **Vigencia:** `validTo` (opcional) debe ser igual o posterior a `validFrom`.
   En una actualización parcial se valida contra los valores resultantes.
+- **Sin superposición:** no se permiten tarifas del mismo tipo de habitación
+  con vigencias que se crucen. Una `validTo` vacía se trata como vigencia
+  abierta. El conflicto responde `409`.
 
 ---
 
@@ -447,24 +456,6 @@ el estado actual, se deja explícita la diferencia entre:
     usuarios autenticados sin permiso, `404 Not Found` para recursos
     inexistentes y `409 Conflict` para operaciones válidas pero incompatibles
     con el estado actual del recurso.
-
-### Catálogo (habitaciones, tipos, tarifas)
-- **Cambios de limpieza desde habitaciones.**
-  - Actual: `PUT /rooms/{id}` permite cambiar `housekeepingStatus` libremente,
-    incluso saltándose el flujo de Housekeeping.
-  - Acordado: `housekeepingStatus` no debe poder modificarse libremente desde
-    el CRUD normal de habitaciones. Los cambios de limpieza deben pasar por
-    Housekeeping.
-- **Tarifas superpuestas.**
-  - Actual: se pueden crear varias tarifas del mismo tipo de habitación con
-    vigencias que se cruzan.
-  - Acordado: no permitir tarifas superpuestas cuando correspondan al mismo
-    contexto aplicable.
-- **Reducir capacidad de un tipo.**
-  - Actual: se puede bajar `capacity` aunque haya reservas activas o futuras
-    que ya superan la nueva capacidad.
-  - Acordado: no permitir reducir la capacidad si deja reservas activas o
-    futuras existentes por encima de la nueva capacidad.
 
 ### Reservas, check-in y checkout
 - **Estado editable libremente.**

@@ -22,6 +22,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
 
+import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.Guest;
+import com.aurora.pms.model.Rate;
+import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
 import com.jayway.jsonpath.JsonPath;
@@ -191,6 +195,38 @@ class RoomTypeControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void updateRoomTypeAllowsCapacityReductionWhenBookingsStillFit() throws Exception {
+		RoomType roomType = createRoomType();
+		roomType.setCapacity(3);
+		roomType = roomTypeRepository.save(roomType);
+		createFutureBooking(roomType, 1, 0);
+
+		mockMvc.perform(put("/api/v1/room-types/{id}", roomType.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"capacity\": 2}"))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.capacity").value(2));
+	}
+
+	@Test
+	void updateRoomTypeRejectsCapacityReductionBelowActiveOrFutureBookings() throws Exception {
+		RoomType roomType = createRoomType();
+		roomType.setCapacity(3);
+		roomType = roomTypeRepository.save(roomType);
+		createFutureBooking(roomType, 2, 1);
+
+		mockMvc.perform(put("/api/v1/room-types/{id}", roomType.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"capacity\": 2}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+
+		assertThat(roomTypeRepository.findById(roomType.getId()).orElseThrow().getCapacity()).isEqualTo(3);
+	}
+
+	@Test
 	void updateRoomTypeWithInvalidCapacityReturnsBadRequest() throws Exception {
 		RoomType roomType = createRoomType();
 
@@ -224,6 +260,16 @@ class RoomTypeControllerTest extends AbstractCatalogApiTest {
 	}
 
 	/** Compara timestamps por instante (precisión de PostgreSQL), sin depender del offset serializado. */
+	private Booking createFutureBooking(RoomType roomType, int adults, int children) {
+		Guest guest = createGuest();
+		Room room = createRoom(roomType);
+		Rate rate = createRate(roomType);
+		Booking booking = createBooking(guest, roomType, room, rate, adults, children);
+		booking.setCheckIn(java.time.LocalDate.of(2026, 12, 10));
+		booking.setCheckOut(java.time.LocalDate.of(2026, 12, 12));
+		return bookingRepository.save(booking);
+	}
+
 	private static Instant instantOf(String value) {
 		return OffsetDateTime.parse(value).toInstant().truncatedTo(ChronoUnit.MICROS);
 	}

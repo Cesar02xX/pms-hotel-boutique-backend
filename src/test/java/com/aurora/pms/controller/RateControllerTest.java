@@ -1,5 +1,6 @@
 package com.aurora.pms.controller;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -8,6 +9,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -53,6 +55,41 @@ class RateControllerTest extends AbstractCatalogApiTest {
 				.andReturn();
 
 		trackCreatedRate(result);
+	}
+
+	@Test
+	void createRateWithoutOverlapReturnsCreated() throws Exception {
+		RoomType roomType = createRoomType();
+		createRate(roomType);
+
+		MvcResult result = mockMvc.perform(post("/api/v1/rates")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"roomTypeId": "%s", "name": "Temporada 2027", "validFrom": "2027-01-01",
+								 "validTo": "2027-03-31", "priceCents": 90000, "minimumNights": 1}
+								""".formatted(roomType.getId())))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.validFrom").value("2027-01-01"))
+				.andReturn();
+
+		trackCreatedRate(result);
+	}
+
+	@Test
+	void createRateWithOverlapReturnsConflict() throws Exception {
+		RoomType roomType = createRoomType();
+		createRate(roomType);
+
+		mockMvc.perform(post("/api/v1/rates")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"roomTypeId": "%s", "name": "Cruce", "validFrom": "2026-06-01",
+								 "validTo": "2026-08-31", "priceCents": 90000, "minimumNights": 1}
+								""".formatted(roomType.getId())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
 	}
 
 	@Test
@@ -129,6 +166,34 @@ class RateControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void updateRateCreatingOverlapReturnsConflict() throws Exception {
+		RoomType roomType = createRoomType();
+		createRate(roomType);
+		MvcResult created = mockMvc.perform(post("/api/v1/rates")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"roomTypeId": "%s", "name": "Second", "validFrom": "2027-01-01",
+								 "validTo": "2027-12-31", "priceCents": 60000, "minimumNights": 1}
+								""".formatted(roomType.getId())))
+				.andExpect(status().isCreated())
+				.andReturn();
+		UUID secondRateId = trackCreatedRate(created);
+
+		mockMvc.perform(put("/api/v1/rates/{id}", secondRateId)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"validFrom": "2026-06-01", "validTo": "2026-06-30"}
+								"""))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+
+		Rate reloaded = rateRepository.findById(secondRateId).orElseThrow();
+		assertThat(reloaded.getValidFrom()).isEqualTo(LocalDate.of(2027, 1, 1));
+	}
+
+	@Test
 	void updateRateValidatesDateRangeAgainstStoredValues() throws Exception {
 		Rate rate = createRate(createRoomType());
 
@@ -166,4 +231,5 @@ class RateControllerTest extends AbstractCatalogApiTest {
 				 "priceCents": 45000, "minimumNights": 1}
 				""".formatted(roomTypeId);
 	}
+
 }

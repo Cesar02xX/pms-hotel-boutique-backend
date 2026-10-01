@@ -24,6 +24,7 @@ import com.aurora.pms.dto.request.CreateRateRequest;
 import com.aurora.pms.dto.request.UpdateRateRequest;
 import com.aurora.pms.dto.response.RateResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.RateMapper;
 import com.aurora.pms.model.Rate;
@@ -91,6 +92,21 @@ class RateServiceImplTest {
 	}
 
 	@Test
+	void createRejectsOverlappingRateForSameRoomType() {
+		RoomType roomType = roomType();
+		LocalDate validFrom = LocalDate.of(2026, 6, 1);
+		LocalDate validTo = LocalDate.of(2026, 6, 30);
+		when(roomTypeRepository.findById(roomType.getId())).thenReturn(Optional.of(roomType));
+		when(rateRepository.existsOverlappingRoomTypeRate(roomType.getId(), validFrom, validTo))
+				.thenReturn(true);
+
+		assertThatThrownBy(() -> rateService.create(new CreateRateRequest(
+				roomType.getId(), "Base", validFrom, validTo, 45000L, null, 1, null, null)))
+				.isInstanceOf(ConflictException.class);
+		verify(rateRepository, never()).save(any());
+	}
+
+	@Test
 	void createRejectsUnknownRoomType() {
 		UUID roomTypeId = UUID.randomUUID();
 		when(roomTypeRepository.findById(roomTypeId)).thenReturn(Optional.empty());
@@ -127,6 +143,21 @@ class RateServiceImplTest {
 		assertThat(response.name()).isEqualTo("Base");
 		assertThat(response.createdAt()).isEqualTo(CREATED_AT);
 		assertThat(response.updatedAt()).isAfter(CREATED_AT);
+	}
+
+	@Test
+	void updateRejectsOverlappingResultingRange() {
+		Rate rate = rate(roomType());
+		LocalDate validTo = LocalDate.of(2026, 1, 31);
+		when(rateRepository.findById(rate.getId())).thenReturn(Optional.of(rate));
+		when(rateRepository.existsOverlappingRoomTypeRateExcludingId(
+				rate.getRoomType().getId(), rate.getId(), rate.getValidFrom(), validTo))
+				.thenReturn(true);
+
+		assertThatThrownBy(() -> rateService.update(rate.getId(), new UpdateRateRequest(
+				null, null, null, validTo, null, null, null, null, null)))
+				.isInstanceOf(ConflictException.class);
+		verify(rateRepository, never()).save(any());
 	}
 
 	@Test

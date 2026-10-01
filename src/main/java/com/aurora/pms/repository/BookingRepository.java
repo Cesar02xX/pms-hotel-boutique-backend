@@ -56,4 +56,19 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 			@Param("checkIn") LocalDate checkIn,
 			@Param("checkOut") LocalDate checkOut
 	);
+
+	@Query("""
+			select count(b) > 0
+			from Booking b
+			where b.roomType.id = :roomTypeId
+			  and b.status in :statuses
+			  and b.checkOut >= :fromDate
+			  and (b.adults + b.children) > :capacity
+			""")
+	boolean existsActiveOrFutureOverCapacity(
+			@Param("roomTypeId") UUID roomTypeId,
+			@Param("statuses") Collection<BookingStatus> statuses,
+			@Param("fromDate") LocalDate fromDate,
+			@Param("capacity") int capacity
+	);
 }
