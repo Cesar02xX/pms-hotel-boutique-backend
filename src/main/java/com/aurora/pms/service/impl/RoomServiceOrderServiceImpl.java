@@ -1,6 +1,7 @@
 package com.aurora.pms.service.impl;
 
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,6 +22,7 @@ import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Order;
 import com.aurora.pms.model.OrderItem;
 import com.aurora.pms.model.Product;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.BookingRepository;
@@ -94,8 +96,15 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	@Override
 	@Transactional
 	public RoomServiceOrderResponse createOrder(CreateRoomServiceOrderRequest request) {
-		Booking booking = bookingRepository.findById(request.bookingId())
+		// El bloqueo evita crear un pedido mientras otra operación cambia el
+		// estado de la reserva (por ejemplo, un checkout simultáneo).
+		Booking booking = bookingRepository.findByIdForUpdate(request.bookingId())
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + request.bookingId()));
+		if (booking.getStatus() != BookingStatus.checked_in) {
+			throw new BadRequestException(
+					"Room service orders require a checked_in booking; current status: " + booking.getStatus());
+		}
+		Map<UUID, Integer> quantitiesByProductId = consolidateQuantities(request.items());
 
 		Order order = roomServiceMapper.toOrderEntity(request, booking);
 		OffsetDateTime now = OffsetDateTime.now();
@@ -105,8 +114,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		order = orderRepository.save(order);
 
 		Order persistedOrder = order;
-		List<OrderItem> items = request.items().stream()
-				.map(itemRequest -> toOrderItem(persistedOrder, itemRequest))
+		List<OrderItem> items = quantitiesByProductId.entrySet().stream()
+				.map(entry -> toOrderItem(persistedOrder, entry.getKey(), entry.getValue()))
 				.toList();
 		items = orderItemRepository.saveAll(items);
 
@@ -127,10 +136,30 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		return roomServiceMapper.toOrderResponse(order, orderItemRepository.findByOrderIdOrderById(orderId));
 	}
 
-	private OrderItem toOrderItem(Order order, CreateRoomServiceOrderItemRequest itemRequest) {
-		Product product = productRepository.findByIdAndActiveTrue(itemRequest.productId())
-				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + itemRequest.productId()));
-		return roomServiceMapper.toOrderItemEntity(order, product, itemRequest.quantity());
+	/**
+	 * Un producto repetido en el body se convierte en una sola línea con la
+	 * suma de cantidades, conservando el orden de primera aparición.
+	 */
+	private static Map<UUID, Integer> consolidateQuantities(List<CreateRoomServiceOrderItemRequest> items) {
+		Map<UUID, Integer> quantitiesByProductId = new LinkedHashMap<>();
+		for (CreateRoomServiceOrderItemRequest item : items) {
+			quantitiesByProductId.merge(item.productId(), item.quantity(), RoomServiceOrderServiceImpl::addQuantities);
+		}
+		return quantitiesByProductId;
+	}
+
+	private static int addQuantities(int current, int added) {
+		try {
+			return Math.addExact(current, added);
+		} catch (ArithmeticException exception) {
+			throw new BadRequestException("Room service item quantity is too large");
+		}
+	}
+
+	private OrderItem toOrderItem(Order order, UUID productId, int quantity) {
+		Product product = productRepository.findByIdAndActiveTrue(productId)
+				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + productId));
+		return roomServiceMapper.toOrderItemEntity(order, product, quantity);
 	}
 
 	private Order getOrder(UUID orderId) {
@@ -167,7 +196,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			case accepted -> next == OrderStatus.preparing || next == OrderStatus.cancelled;
 			case preparing -> next == OrderStatus.ready || next == OrderStatus.cancelled;
 			case ready -> next == OrderStatus.on_the_way || next == OrderStatus.cancelled;
-			case on_the_way -> next == OrderStatus.delivered || next == OrderStatus.cancelled;
+			// Ya en camino, el pedido solo puede entregarse.
+			case on_the_way -> next == OrderStatus.delivered;
 			case delivered, rejected, cancelled -> false;
 		};
 	}

@@ -89,7 +89,7 @@ public class RoomServiceController {
 	@Operation(summary = "Create a room service order")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Order created"),
-			@ApiResponse(responseCode = "400", description = "Invalid request",
+			@ApiResponse(responseCode = "400", description = "Invalid request or booking is not checked_in",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "Booking or product not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
@@ -103,7 +103,8 @@ public class RoomServiceController {
 	@PostMapping("/orders/{orderId}/status")
 	@Operation(summary = "Update a room service order status",
 			description = "Allowed flow: pending -> accepted -> preparing -> ready -> on_the_way -> delivered. "
-					+ "Orders can be cancelled before delivered; pending can also be rejected.")
+					+ "Orders can be cancelled from pending, accepted, preparing or ready; "
+					+ "pending can also be rejected.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Order status updated"),
 			@ApiResponse(responseCode = "400", description = "Invalid status transition",

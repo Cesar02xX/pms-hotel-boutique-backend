@@ -27,6 +27,7 @@ import com.aurora.pms.model.Product;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.OrderItemRepository;
@@ -229,15 +230,130 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
-	void pendingCanBeRejectedAndOrdersCanBeCancelledBeforeDelivered() throws Exception {
+	void pendingCanBeRejected() throws Exception {
 		Booking booking = createRoomServiceBooking();
 		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
-		String rejectedOrderId = createOrder(booking, product, 1);
-		String cancelledOrderId = createOrder(booking, product, 1);
-		updateStatusExpectingOk(cancelledOrderId, "accepted");
+		String orderId = createOrder(booking, product, 1);
 
-		updateStatusExpectingOk(rejectedOrderId, "rejected");
-		updateStatusExpectingOk(cancelledOrderId, "cancelled");
+		updateStatusExpectingOk(orderId, "rejected");
+	}
+
+	@Test
+	void ordersCanBeCancelledFromPendingAcceptedPreparingAndReady() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+		List<String> flow = List.of("accepted", "preparing", "ready");
+
+		for (int steps = 0; steps <= flow.size(); steps++) {
+			String orderId = createOrder(booking, product, 1);
+			for (String status : flow.subList(0, steps)) {
+				updateStatusExpectingOk(orderId, status);
+			}
+			updateStatusExpectingOk(orderId, "cancelled");
+		}
+	}
+
+	@Test
+	void onTheWayOrderCannotBeCancelled() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+		String orderId = createOrder(booking, product, 1);
+		updateStatusExpectingOk(orderId, "accepted");
+		updateStatusExpectingOk(orderId, "preparing");
+		updateStatusExpectingOk(orderId, "ready");
+		updateStatusExpectingOk(orderId, "on_the_way");
+
+		updateStatusExpectingBadRequest(orderId, "cancelled", "Invalid room service order status transition");
+		assertThat(orderRepository.findById(UUID.fromString(orderId)).orElseThrow().getStatus())
+				.isEqualTo(OrderStatus.on_the_way);
+	}
+
+	@Test
+	void terminalStatusesCannotBeCancelled() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+
+		for (OrderStatus terminal : List.of(OrderStatus.delivered, OrderStatus.rejected, OrderStatus.cancelled)) {
+			String orderId = createOrder(booking, product, 1);
+			Order order = orderRepository.findById(UUID.fromString(orderId)).orElseThrow();
+			order.setStatus(terminal);
+			orderRepository.save(order);
+
+			updateStatusExpectingBadRequest(orderId, "cancelled",
+					terminal == OrderStatus.cancelled
+							? "Room service order is already"
+							: "Room service order status is terminal");
+		}
+	}
+
+	@Test
+	void createOrderRequiresCheckedInBooking() throws Exception {
+		Product product = createProduct(ProductCategory.minibar, true, 800L);
+
+		for (BookingStatus status : List.of(BookingStatus.pending, BookingStatus.confirmed,
+				BookingStatus.checked_out, BookingStatus.cancelled, BookingStatus.no_show)) {
+			Booking booking = createRoomServiceBooking(status);
+
+			mockMvc.perform(post("/api/v1/room-service/orders")
+							.with(staffUser())
+							.contentType(MediaType.APPLICATION_JSON)
+							.content("""
+									{"bookingId": "%s", "items": [{"productId": "%s", "quantity": 1}]}
+									""".formatted(booking.getId(), product.getId())))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.message").value(startsWith("Room service orders require a checked_in booking")));
+
+			assertThat(orderRepository.findWithFilters(booking.getId(), null)).isEmpty();
+		}
+	}
+
+	@Test
+	void decimalNegativeOrTextQuantityReturnsBadRequestWithoutCreatingOrder() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.minibar, true, 800L);
+
+		for (String quantity : List.of("1.5", "2.0", "-1", "\"2\"", "2147483648")) {
+			mockMvc.perform(post("/api/v1/room-service/orders")
+							.with(staffUser())
+							.contentType(MediaType.APPLICATION_JSON)
+							.content("""
+									{"bookingId": "%s", "items": [{"productId": "%s", "quantity": %s}]}
+									""".formatted(booking.getId(), product.getId(), quantity)))
+					.andExpect(status().isBadRequest())
+					.andExpect(jsonPath("$.status").value(400));
+		}
+
+		assertThat(orderRepository.findWithFilters(booking.getId(), null)).isEmpty();
+	}
+
+	@Test
+	void repeatedProductsAreConsolidatedIntoOneLine() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product burger = createProduct(ProductCategory.food_and_beverage, true, 3500L);
+		Product soda = createProduct(ProductCategory.minibar, true, 800L);
+
+		MvcResult result = mockMvc.perform(post("/api/v1/room-service/orders")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"bookingId": "%s",
+								 "items": [
+								   {"productId": "%s", "quantity": 1},
+								   {"productId": "%s", "quantity": 2},
+								   {"productId": "%s", "quantity": 3}
+								 ]}
+								""".formatted(booking.getId(), burger.getId(), soda.getId(), burger.getId())))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.items.length()").value(2))
+				.andExpect(jsonPath("$.items[?(@.productId == '%s')].quantity".formatted(burger.getId()))
+						.value(hasItem(4)))
+				.andExpect(jsonPath("$.items[?(@.productId == '%s')].lineTotalCents".formatted(burger.getId()))
+						.value(hasItem(14000)))
+				.andExpect(jsonPath("$.totalCents").value(15600))
+				.andReturn();
+
+		UUID orderId = trackCreatedOrder(result);
+		assertThat(orderItemRepository.findByOrderIdOrderById(orderId)).hasSize(2);
 	}
 
 	@Test
@@ -289,11 +405,28 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 	}
 
 	private Booking createRoomServiceBooking() {
+		return createRoomServiceBooking(BookingStatus.checked_in);
+	}
+
+	private Booking createRoomServiceBooking(BookingStatus status) {
 		Guest guest = createGuest();
 		RoomType roomType = createRoomType();
 		Room room = createRoom(roomType);
 		Rate rate = createRate(roomType);
-		return createBooking(guest, roomType, room, rate);
+		Booking booking = createBooking(guest, roomType, room, rate);
+		booking.setStatus(status);
+		return bookingRepository.save(booking);
+	}
+
+	private void updateStatusExpectingBadRequest(String orderId, String status, String messagePrefix) throws Exception {
+		mockMvc.perform(post("/api/v1/room-service/orders/{orderId}/status", orderId)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "%s"}
+								""".formatted(status)))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value(startsWith(messagePrefix)));
 	}
 
 	private Product createProduct(ProductCategory category, boolean active, long priceCents) {
