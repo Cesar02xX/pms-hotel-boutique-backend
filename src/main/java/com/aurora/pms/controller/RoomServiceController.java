@@ -5,6 +5,8 @@ import java.util.UUID;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,6 +25,7 @@ import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.service.RoomServiceOrderService;
 
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -89,7 +92,7 @@ public class RoomServiceController {
 	@Operation(summary = "Create a room service order")
 	@ApiResponses({
 			@ApiResponse(responseCode = "201", description = "Order created"),
-			@ApiResponse(responseCode = "400", description = "Invalid request",
+			@ApiResponse(responseCode = "400", description = "Invalid request or booking is not checked_in",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
 			@ApiResponse(responseCode = "404", description = "Booking or product not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
@@ -103,18 +106,25 @@ public class RoomServiceController {
 	@PostMapping("/orders/{orderId}/status")
 	@Operation(summary = "Update a room service order status",
 			description = "Allowed flow: pending -> accepted -> preparing -> ready -> on_the_way -> delivered. "
-					+ "Orders can be cancelled before delivered; pending can also be rejected.")
+					+ "Orders can be cancelled from pending, accepted, preparing or ready; "
+					+ "pending can also be rejected. Accepting deducts inventory; cancelling after "
+					+ "acceptance restores it. Delivering posts one charge with the order total to the "
+					+ "booking's open guest folio.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Order status updated"),
-			@ApiResponse(responseCode = "400", description = "Invalid status transition",
+			@ApiResponse(responseCode = "400",
+					description = "Invalid status transition, missing inventory item, insufficient stock, "
+							+ "guest folio not open or order total of zero",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
-			@ApiResponse(responseCode = "404", description = "Order not found",
+			@ApiResponse(responseCode = "404", description = "Order or guest folio not found",
 					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
 	})
 	public ResponseEntity<RoomServiceOrderResponse> updateStatus(
 			@PathVariable UUID orderId,
-			@Valid @RequestBody UpdateRoomServiceOrderStatusRequest request
+			@Valid @RequestBody UpdateRoomServiceOrderStatusRequest request,
+			@Parameter(hidden = true) @AuthenticationPrincipal UserDetails currentUser
 	) {
-		return ResponseEntity.ok(roomServiceOrderService.updateStatus(orderId, request.status()));
+		String actorEmail = currentUser != null ? currentUser.getUsername() : null;
+		return ResponseEntity.ok(roomServiceOrderService.updateStatus(orderId, request.status(), actorEmail));
 	}
 }

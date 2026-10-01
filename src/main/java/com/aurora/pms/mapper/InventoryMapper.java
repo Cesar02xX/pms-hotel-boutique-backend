@@ -39,7 +39,8 @@ public class InventoryMapper {
 				movement.getResponsibleUser() != null ? movement.getResponsibleUser().getId() : null,
 				movement.getOccurredAt(),
 				movement.getNotes(),
-				movement.getCreatedAt()
+				movement.getCreatedAt(),
+				movement.getRoomServiceOrder() != null ? movement.getRoomServiceOrder().getId() : null
 		);
 	}
 

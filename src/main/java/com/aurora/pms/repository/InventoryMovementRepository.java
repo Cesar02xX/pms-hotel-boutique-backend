@@ -6,8 +6,11 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.aurora.pms.model.InventoryMovement;
+import com.aurora.pms.model.enums.InventoryMovementType;
 
 public interface InventoryMovementRepository extends JpaRepository<InventoryMovement, UUID> {
 
 	List<InventoryMovement> findByInventoryItemIdOrderByOccurredAtAscCreatedAtAsc(UUID inventoryItemId);
+
+	List<InventoryMovement> findByRoomServiceOrderIdAndType(UUID roomServiceOrderId, InventoryMovementType type);
 }

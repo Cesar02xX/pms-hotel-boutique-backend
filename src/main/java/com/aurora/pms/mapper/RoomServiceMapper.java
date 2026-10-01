@@ -48,6 +48,7 @@ public class RoomServiceMapper {
 				order.getCurrency(),
 				totalCents,
 				itemResponses,
+				order.getCharge() != null ? order.getCharge().getId() : null,
 				order.getRequestedAt(),
 				order.getCreatedAt(),
 				order.getUpdatedAt()

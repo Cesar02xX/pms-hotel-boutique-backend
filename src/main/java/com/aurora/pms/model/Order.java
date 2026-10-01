@@ -61,6 +61,14 @@ public class Order {
 	@JoinColumn(name = "charge_id")
 	private Charge charge;
 
+	/** Momento en que se descontó el inventario al aceptar el pedido. */
+	@Column(name = "inventory_deducted_at")
+	private OffsetDateTime inventoryDeductedAt;
+
+	/** Momento en que se devolvió el inventario al cancelar el pedido. */
+	@Column(name = "inventory_restored_at")
+	private OffsetDateTime inventoryRestoredAt;
+
 	@Column(name = "requested_at", nullable = false)
 	private OffsetDateTime requestedAt;
 

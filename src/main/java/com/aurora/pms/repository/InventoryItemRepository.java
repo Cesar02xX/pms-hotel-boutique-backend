@@ -20,6 +20,13 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItem, UU
 	Optional<InventoryItem> findByIdForUpdate(@Param("id") UUID id);
 
 	/**
+	 * Solo ids: cargar aquí la entidad haría que el findByIdForUpdate posterior
+	 * devolviera la instancia ya cacheada, con la existencia previa al bloqueo.
+	 */
+	@Query("select i.id from InventoryItem i where i.product.id = :productId and i.active = true")
+	List<UUID> findActiveIdsByProductId(@Param("productId") UUID productId);
+
+	/**
 	 * Filtros opcionales: un parámetro null no filtra. category se compara en
 	 * minúsculas (el servicio la normaliza). lowStock=true devuelve
 	 * currentQuantity <= minimumQuantity; lowStock=false, el resto.

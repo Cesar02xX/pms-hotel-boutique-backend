@@ -1,6 +1,7 @@
 package com.aurora.pms.service.impl;
 
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -10,8 +11,10 @@ import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.aurora.pms.dto.request.CreateChargeRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderItemRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
+import com.aurora.pms.dto.response.ChargeResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.exception.BadRequestException;
@@ -21,12 +24,18 @@ import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Order;
 import com.aurora.pms.model.OrderItem;
 import com.aurora.pms.model.Product;
+import com.aurora.pms.model.User;
+import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.ChargeCategory;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.BookingRepository;
+import com.aurora.pms.repository.ChargeRepository;
 import com.aurora.pms.repository.OrderItemRepository;
 import com.aurora.pms.repository.OrderRepository;
 import com.aurora.pms.repository.ProductRepository;
+import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.service.GuestFolioService;
 import com.aurora.pms.service.RoomServiceOrderService;
 
 @Service
@@ -42,20 +51,32 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	private final BookingRepository bookingRepository;
 	private final OrderRepository orderRepository;
 	private final OrderItemRepository orderItemRepository;
+	private final UserRepository userRepository;
 	private final RoomServiceMapper roomServiceMapper;
+	private final RoomServiceOrderInventory orderInventory;
+	private final GuestFolioService guestFolioService;
+	private final ChargeRepository chargeRepository;
 
 	public RoomServiceOrderServiceImpl(
 			ProductRepository productRepository,
 			BookingRepository bookingRepository,
 			OrderRepository orderRepository,
 			OrderItemRepository orderItemRepository,
-			RoomServiceMapper roomServiceMapper
+			UserRepository userRepository,
+			RoomServiceMapper roomServiceMapper,
+			RoomServiceOrderInventory orderInventory,
+			GuestFolioService guestFolioService,
+			ChargeRepository chargeRepository
 	) {
 		this.productRepository = productRepository;
 		this.bookingRepository = bookingRepository;
 		this.orderRepository = orderRepository;
 		this.orderItemRepository = orderItemRepository;
+		this.userRepository = userRepository;
 		this.roomServiceMapper = roomServiceMapper;
+		this.orderInventory = orderInventory;
+		this.guestFolioService = guestFolioService;
+		this.chargeRepository = chargeRepository;
 	}
 
 	@Override
@@ -94,8 +115,15 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	@Override
 	@Transactional
 	public RoomServiceOrderResponse createOrder(CreateRoomServiceOrderRequest request) {
-		Booking booking = bookingRepository.findById(request.bookingId())
+		// El bloqueo evita crear un pedido mientras otra operación cambia el
+		// estado de la reserva (por ejemplo, un checkout simultáneo).
+		Booking booking = bookingRepository.findByIdForUpdate(request.bookingId())
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + request.bookingId()));
+		if (booking.getStatus() != BookingStatus.checked_in) {
+			throw new BadRequestException(
+					"Room service orders require a checked_in booking; current status: " + booking.getStatus());
+		}
+		Map<UUID, Integer> quantitiesByProductId = consolidateQuantities(request.items());
 
 		Order order = roomServiceMapper.toOrderEntity(request, booking);
 		OffsetDateTime now = OffsetDateTime.now();
@@ -105,8 +133,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		order = orderRepository.save(order);
 
 		Order persistedOrder = order;
-		List<OrderItem> items = request.items().stream()
-				.map(itemRequest -> toOrderItem(persistedOrder, itemRequest))
+		List<OrderItem> items = quantitiesByProductId.entrySet().stream()
+				.map(entry -> toOrderItem(persistedOrder, entry.getKey(), entry.getValue()))
 				.toList();
 		items = orderItemRepository.saveAll(items);
 
@@ -115,22 +143,99 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 
 	@Override
 	@Transactional
-	public RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status) {
+	public RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status, String actorEmail) {
+		// El bloqueo del pedido serializa sus cambios de estado: un mismo pedido
+		// no puede descontar ni devolver inventario dos veces en paralelo.
 		Order order = orderRepository.findByIdForUpdate(orderId)
 				.orElseThrow(() -> new ResourceNotFoundException("Room service order not found: " + orderId));
 		validateTransition(order.getStatus(), status);
+		List<OrderItem> items = orderItemRepository.findByOrderIdOrderById(orderId);
+		User actor = findActor(actorEmail);
+
+		if (status == OrderStatus.accepted) {
+			orderInventory.deduct(order, items, actor);
+		} else if (status == OrderStatus.cancelled) {
+			orderInventory.restore(order, actor);
+		} else if (status == OrderStatus.delivered) {
+			chargeToFolio(order, items, actorEmail);
+		}
 
 		order.setStatus(status);
 		order.setUpdatedAt(OffsetDateTime.now());
 		order = orderRepository.save(order);
 
-		return roomServiceMapper.toOrderResponse(order, orderItemRepository.findByOrderIdOrderById(orderId));
+		return roomServiceMapper.toOrderResponse(order, items);
 	}
 
-	private OrderItem toOrderItem(Order order, CreateRoomServiceOrderItemRequest itemRequest) {
-		Product product = productRepository.findByIdAndActiveTrue(itemRequest.productId())
-				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + itemRequest.productId()));
-		return roomServiceMapper.toOrderItemEntity(order, product, itemRequest.quantity());
+	/**
+	 * Registra un único cargo por el total real del pedido en el folio abierto
+	 * de la reserva, reutilizando las reglas del Folio (404 sin folio, 400 si
+	 * no está abierto). Corre en la misma transacción que la entrega: si falla,
+	 * el pedido sigue on_the_way y no queda ningún cargo.
+	 */
+	private void chargeToFolio(Order order, List<OrderItem> items, String actorEmail) {
+		if (order.getCharge() != null) {
+			return;
+		}
+		long totalCents = calculateTotalCents(items);
+		if (totalCents <= 0) {
+			throw new BadRequestException("Room service order total must be greater than zero to be delivered");
+		}
+
+		CreateChargeRequest chargeRequest = new CreateChargeRequest(
+				"Room service order " + order.getId(),
+				1,
+				totalCents,
+				ChargeCategory.consumption,
+				null
+		);
+		ChargeResponse charge = guestFolioService.createCharge(order.getBooking().getId(), chargeRequest, actorEmail);
+		order.setCharge(chargeRepository.getReferenceById(charge.id()));
+	}
+
+	private static long calculateTotalCents(List<OrderItem> items) {
+		try {
+			long total = 0;
+			for (OrderItem item : items) {
+				total = Math.addExact(total, Math.multiplyExact(item.getQuantity().longValue(), item.getUnitPriceCents()));
+			}
+			return total;
+		} catch (ArithmeticException exception) {
+			throw new BadRequestException("Room service order total is too large");
+		}
+	}
+
+	private User findActor(String actorEmail) {
+		if (actorEmail == null) {
+			return null;
+		}
+		return userRepository.findByEmail(actorEmail).orElse(null);
+	}
+
+	/**
+	 * Un producto repetido en el body se convierte en una sola línea con la
+	 * suma de cantidades, conservando el orden de primera aparición.
+	 */
+	private static Map<UUID, Integer> consolidateQuantities(List<CreateRoomServiceOrderItemRequest> items) {
+		Map<UUID, Integer> quantitiesByProductId = new LinkedHashMap<>();
+		for (CreateRoomServiceOrderItemRequest item : items) {
+			quantitiesByProductId.merge(item.productId(), item.quantity(), RoomServiceOrderServiceImpl::addQuantities);
+		}
+		return quantitiesByProductId;
+	}
+
+	private static int addQuantities(int current, int added) {
+		try {
+			return Math.addExact(current, added);
+		} catch (ArithmeticException exception) {
+			throw new BadRequestException("Room service item quantity is too large");
+		}
+	}
+
+	private OrderItem toOrderItem(Order order, UUID productId, int quantity) {
+		Product product = productRepository.findByIdAndActiveTrue(productId)
+				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + productId));
+		return roomServiceMapper.toOrderItemEntity(order, product, quantity);
 	}
 
 	private Order getOrder(UUID orderId) {
@@ -167,7 +272,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			case accepted -> next == OrderStatus.preparing || next == OrderStatus.cancelled;
 			case preparing -> next == OrderStatus.ready || next == OrderStatus.cancelled;
 			case ready -> next == OrderStatus.on_the_way || next == OrderStatus.cancelled;
-			case on_the_way -> next == OrderStatus.delivered || next == OrderStatus.cancelled;
+			// Ya en camino, el pedido solo puede entregarse.
+			case on_the_way -> next == OrderStatus.delivered;
 			case delivered, rejected, cancelled -> false;
 		};
 	}

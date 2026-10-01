@@ -1,7 +1,5 @@
 package com.aurora.pms.service.impl;
 
-import java.time.Clock;
-import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
@@ -30,7 +28,8 @@ import com.aurora.pms.service.InventoryService;
 
 /**
  * Existencias sobre items ya creados. No toca Product.stockQuantity ni se
- * integra con Room Service o Caja; los movimientos nunca se borran.
+ * integra con Caja; los movimientos nunca se borran. Los movimientos
+ * automáticos de Room Service (room_service_return) no se aceptan aquí.
  */
 @Service
 public class InventoryServiceImpl implements InventoryService {
@@ -51,20 +50,20 @@ public class InventoryServiceImpl implements InventoryService {
 	private final InventoryMovementRepository inventoryMovementRepository;
 	private final UserRepository userRepository;
 	private final InventoryMapper inventoryMapper;
-	private final Clock clock;
+	private final InventoryStockLedger stockLedger;
 
 	public InventoryServiceImpl(
 			InventoryItemRepository inventoryItemRepository,
 			InventoryMovementRepository inventoryMovementRepository,
 			UserRepository userRepository,
 			InventoryMapper inventoryMapper,
-			Clock clock
+			InventoryStockLedger stockLedger
 	) {
 		this.inventoryItemRepository = inventoryItemRepository;
 		this.inventoryMovementRepository = inventoryMovementRepository;
 		this.userRepository = userRepository;
 		this.inventoryMapper = inventoryMapper;
-		this.clock = clock;
+		this.stockLedger = stockLedger;
 	}
 
 	@Override
@@ -116,34 +115,10 @@ public class InventoryServiceImpl implements InventoryService {
 					"Reason " + request.reason() + " is not valid for movement type " + request.type());
 		}
 
-		int newQuantity = calculateNewQuantity(item.getCurrentQuantity(), request.type(), request.quantity());
-
-		OffsetDateTime now = OffsetDateTime.now(clock);
-		item.setCurrentQuantity(newQuantity);
-		item.setUpdatedAt(now);
-		inventoryItemRepository.save(item);
-
 		InventoryMovement movement = inventoryMapper.toEntity(request, item);
 		movement.setResponsibleUser(findActor(actorEmail));
-		movement.setOccurredAt(now);
-		movement.setCreatedAt(now);
 
-		return inventoryMapper.toResponse(inventoryMovementRepository.save(movement));
-	}
-
-	private static int calculateNewQuantity(int current, InventoryMovementType type, int quantity) {
-		if (type == InventoryMovementType.out) {
-			if (quantity > current) {
-				throw new BadRequestException(
-						"Insufficient stock: available " + current + ", requested " + quantity);
-			}
-			return current - quantity;
-		}
-		try {
-			return Math.addExact(current, quantity);
-		} catch (ArithmeticException exception) {
-			throw new BadRequestException("Inventory quantity is too large");
-		}
+		return inventoryMapper.toResponse(stockLedger.apply(item, movement));
 	}
 
 	private User findActor(String actorEmail) {

@@ -38,7 +38,7 @@ implementadas en Java.
 - **Dinero:** siempre en **centavos enteros** (`Long`). La moneda es siempre
   `GTQ`. En pagos, depósitos y caja, los montos con decimales (`1.5`) se
   **rechazan** con `400` en lugar de truncarse. Lo mismo aplica a las
-  cantidades de los movimientos de inventario.
+  cantidades de los movimientos de inventario y de los ítems de Room Service.
 - **Campos controlados por el servidor:** IDs, estados iniciales, moneda,
   timestamps (`createdAt`, `updatedAt`, `paidAt`, `openedAt`, etc.) y usuario
   responsable los asigna el backend. Si el cliente los envía en el body, se
@@ -241,6 +241,8 @@ implementadas en Java.
   - El monto total debe ser mayor que `0`; los cargos financieros normales de
     valor cero se rechazan con `400`.
   - Se crean con `status = posted` y suman al saldo.
+  - Además de `POST /charges`, Room Service crea un cargo automáticamente al
+    entregar un pedido, con estas mismas reglas (ver sección 16).
 - **Anular cargo:** requiere `reason`, no se puede anular dos veces y resta
   el monto del saldo.
 - **Cierre:** el folio se cierra exclusivamente como parte del checkout de la
@@ -415,6 +417,8 @@ implementadas en Java.
     - `in`: `purchase`, `restock`, `physical_count`
     - `out`: `consumption`, `sale`, `shrinkage`, `physical_count`
     - cualquier otra combinacion -> `400`.
+    - `room_service_return` es un motivo interno de Room Service y siempre
+      se rechaza (`400`) en este endpoint.
   - `physical_count` representa un ajuste trazable por conteo fisico: si el
     conteo real es mayor se registra como `in`, y si es menor como `out`.
   - `in` suma y `out` resta a `currentQuantity`.
@@ -428,7 +432,16 @@ implementadas en Java.
   `currentQuantity` ocurren en la misma transaccion. El articulo se bloquea
   mientras se registra el movimiento, asi que dos salidas simultaneas no
   pueden vender de mas ni perder una resta.
-- **Sin integraciones:** no hay integracion con Room Service, Caja ni Folio.
+- **Integracion con Room Service:** los pedidos descuentan y devuelven
+  existencias con movimientos automaticos (ver seccion 16):
+  - al aceptar: `out` / `sale`;
+  - al cancelar un pedido ya aceptado: `in` / `room_service_return`.
+  - Estos movimientos aplican las mismas reglas de stock y bloqueo del
+    articulo e incluyen `roomServiceOrderId` en la respuesta de movimientos.
+    Los movimientos manuales tienen `roomServiceOrderId = null`.
+  - La BD garantiza que un pedido descuente y devuelva cada articulo como
+    maximo una vez, y que `room_service_return` siempre tenga pedido.
+- **Sin otras integraciones:** no hay integracion con Caja ni Folio.
 - **Historial:** los movimientos nunca se borran ni se editan. Los errores se
   corrigen con movimientos compensatorios.
 
@@ -484,28 +497,81 @@ implementadas en Java.
   existe → `404`.
 - **Creación (`POST`):**
   - `bookingId` y al menos un ítem son obligatorios. `notes` es opcional.
-  - Cada ítem requiere `productId` y `quantity` (> 0).
-  - La reserva y los productos deben existir, y los productos deben estar
-    activos. Si no → **`404`** (distinto de la convención del resto de la
-    API, ver sección 0).
+  - Cada ítem requiere `productId` y `quantity`.
+  - **Cantidades:** solo enteros positivos (`1`, `2`, `3`, ...). `0`,
+    negativos, decimales (`1.5`, `2.0`), texto y valores fuera del rango de
+    un entero → `400`. Los decimales no se truncan ni se redondean.
+  - La reserva debe existir y estar **`checked_in`**. Si no existe →
+    **`404`**; si existe en cualquier otro estado → `400`.
+  - Los productos deben existir y estar activos. Si no → **`404`**.
+  - El `404` de `bookingId`/`productId` es distinto de la convención del
+    resto de la API (ver sección 0 y pendientes en la sección 17).
+  - **Productos repetidos:** si el mismo `productId` aparece varias veces se
+    consolida en una sola línea sumando las cantidades. Si la suma desborda
+    un entero → `400`.
   - Se crea con `status = pending` y `currency = GTQ`. La habitación y el
     huésped se toman de la reserva, y el backend controla los timestamps.
+  - La reserva se bloquea mientras se crea el pedido, así que un checkout
+    simultáneo no deja crear pedidos sobre una reserva que ya salió.
   - **Precio congelado:** cada línea guarda el precio del producto al
     momento del pedido (`unitPriceCents`), así que un cambio de precio
     posterior no afecta pedidos ya creados.
   - **Totales calculados en backend:** `lineTotalCents = quantity ×
     unitPriceCents` y `totalCents` = suma de las líneas.
+  - Crear el pedido (`pending`) **no** descuenta inventario ni genera cargos.
 - **Flujo de estados (`POST /{orderId}/status`):**
-  - `pending → accepted | rejected | cancelled`
-  - `accepted → preparing | cancelled`
-  - `preparing → ready | cancelled`
-  - `ready → on_the_way | cancelled`
-  - `on_the_way → delivered | cancelled`
+  - Flujo principal: `pending → accepted → preparing → ready → on_the_way →
+    delivered`.
+  - `pending` también puede pasar a `rejected`.
+  - Cancelación permitida solo desde `pending`, `accepted`, `preparing` y
+    `ready`. Desde `on_the_way` el pedido ya no se puede cancelar: solo puede
+    pasar a `delivered`.
   - `delivered`, `rejected` y `cancelled` son **terminales** (`400`).
   - Repetir el estado actual o hacer cualquier otra transición → `400`.
-  - El cambio de estado bloquea el pedido.
-- **Sin integraciones:** crear o entregar un pedido **no** genera cargos en
-  el folio y **no** descuenta `Product.stockQuantity` ni el inventario.
+  - El cambio de estado bloquea el pedido, así que dos cambios simultáneos
+    sobre el mismo pedido se procesan uno detrás del otro.
+  - El usuario del JWT queda como responsable de los movimientos de
+    inventario y como creador del cargo, cuando existe en `users`.
+  - Si una integración falla, la transición completa se revierte: el pedido
+    conserva su estado anterior y no quedan descuentos, devoluciones ni
+    cargos parciales.
+- **Inventario (`InventoryItem.currentQuantity` es la fuente oficial):**
+  - **Al pasar a `accepted`:**
+    - Cada producto del pedido debe tener **exactamente un** artículo de
+      inventario **activo** vinculado (`InventoryItem.product`). Si no tiene
+      ninguno o tiene varios → `400`.
+    - Se validan las existencias de **todas** las líneas antes de descontar.
+      Si falta stock en cualquiera → `400` (`Insufficient stock for product
+      ...`) y no se descuenta ninguna.
+    - Si todo es válido, cada línea descuenta su cantidad con un movimiento
+      `out` / `sale` ligado al pedido (`roomServiceOrderId`).
+    - Los artículos se bloquean (siempre en el mismo orden), así que pedidos
+      simultáneos no pueden vender de más.
+  - **Al cancelar un pedido que ya descontó inventario:** se devuelve
+    exactamente lo descontado con movimientos `in` / `room_service_return`.
+    Esto ocurre aunque el artículo esté inactivo en ese momento.
+  - Cancelar o rechazar un pedido `pending` no toca el inventario.
+  - El pedido guarda internamente cuándo descontó (`inventory_deducted_at`)
+    y cuándo devolvió (`inventory_restored_at`) inventario. La BD impide
+    descontar o devolver dos veces el mismo artículo para un pedido.
+  - `Product.stockQuantity` no se usa ni se modifica.
+- **Cargo al folio (al pasar a `delivered`):**
+  - Se crea **un** cargo en el folio de la reserva por el total real del
+    pedido (precios congelados): `quantity = 1`, `unitPriceCents =
+    totalCents`, `category = consumption`, `status = posted` y descripción
+    `Room service order <orderId>`. El saldo del folio aumenta en ese monto.
+  - El pedido guarda el cargo y lo expone como `chargeId` en la respuesta.
+    `chargeId` es `null` hasta la entrega.
+  - Se aplican las reglas del Folio: sin folio → `404`; folio no abierto →
+    `400`.
+  - Un pedido con `totalCents = 0` no puede entregarse → `400`, porque el
+    folio no admite cargos de valor cero.
+  - En cualquiera de esos errores el pedido permanece `on_the_way` y no se
+    crea ningún cargo.
+  - **Sin cargos duplicados:** un pedido entregado es terminal y el bloqueo
+    del pedido serializa los reintentos. Además, la BD impide que un mismo
+    cargo quede ligado a dos pedidos.
+  - Crear o aceptar un pedido no genera cargos.
 
 ---
 
@@ -549,42 +615,10 @@ el estado actual, se deja explícita la diferencia entre:
     se necesita administrar articulos desde la API.
 
 ### Room Service
-- **Estado de reserva para crear pedidos.**
-  - Actual: se pueden crear pedidos para reservas `pending`, `cancelled`,
-    `no_show` o `checked_out`.
-  - Acordado: los pedidos asociados a una habitación/reserva solo pueden
-    crearse cuando la reserva esté `checked_in`.
-- **Inventario.**
-  - Actual: no se valida disponibilidad ni se descuenta stock.
-  - Acordado: `pending` todavía no descuenta inventario. Al pasar a
-    `accepted`, se debe validar existencia y descontar inventario. Si el pedido
-    se cancela después de haber afectado inventario, devolver las existencias.
-    La operación debe ser transaccional y segura ante concurrencia.
-- **Cargo al folio.**
-  - Actual: crear, aceptar o entregar un pedido no genera cargos en el folio;
-    `charge_id` no se usa.
-  - Acordado: el cargo se genera cuando el pedido llega a `delivered`. No
-    generar el cargo simplemente al crear o aceptar el pedido. Guardar y usar
-    `charge_id` para impedir cargos duplicados.
-- **Cantidades.**
-  - Actual: `quantity` puede truncar decimales como `1.5` a `1`.
-  - Acordado: solo permitir números enteros positivos (`1`, `2`, `3`, ...).
-    `0`, negativos y decimales son inválidos. Un decimal no debe redondearse
-    ni truncarse; por ejemplo, `1.5` debe rechazarse con `400 Bad Request`.
-- **Cancelación.**
-  - Actual: se puede cancelar hasta `on_the_way`.
-  - Acordado: permitir cancelación hasta `ready`. Flujo principal:
-    `pending → accepted → preparing → ready → on_the_way → delivered`.
-    Cancelación permitida desde `pending`, `accepted`, `preparing` y `ready`.
-    Una vez `on_the_way`, el pedido ya no puede cancelarse mediante el flujo
-    normal.
-- **Productos duplicados.**
-  - Actual: el mismo producto puede aparecer en varias líneas independientes.
-  - Acordado: no mantener varias líneas independientes para el mismo producto
-    dentro de un pedido; consolidar productos repetidos en una sola línea
-    sumando sus cantidades.
 - **Referencias del body.**
-  - Actual: si no existen el `bookingId` o un `productId` del body, responde
-    `404`, distinto de la convención del resto de la API.
-  - Acordado: la convención general de códigos queda sujeta a la regla de
-    códigos HTTP definida en General / seguridad.
+  - Actual: si no existen el `bookingId` o un `productId` del body, o el
+    producto está inactivo, responde `404`, distinto de la convención del
+    resto de la API.
+  - Acordado: corregirlo en un ticket posterior para alinearlo con la regla
+    general de la sección 0 (`400` para referencias inválidas del body). Se
+    mantuvo deliberadamente fuera de la Tanda 5.
