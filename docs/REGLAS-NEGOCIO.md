@@ -364,7 +364,8 @@ implementadas en Java.
   - `POST /{roomId}/inspect`: `clean → inspected`
   - Si la habitación no está en el estado de origen → `400`.
 - El flujo es solo de avance: no hay acción para volver a marcar una
-  habitación como `dirty` (ver Decisiones por confirmar).
+  habitación como `dirty` (ver sección 17, Decisiones acordadas pendientes de
+  implementación).
 - Solo cambia `housekeepingStatus`; el estado operativo (`status`:
   `available`, `occupied`…) no se toca.
 - Relación con el check-in: una habitación solo admite check-in si está
@@ -665,10 +666,10 @@ el estado actual, se deja explícita la diferencia entre:
     crearse cuando la reserva esté `checked_in`.
 - **Inventario.**
   - Actual: no se valida disponibilidad ni se descuenta stock.
-  - Acordado: `pending` todavía no descuenta inventario. `accepted` debe
-    validar existencia y descontar o reservar inventario. Si el pedido se
-    cancela después de haber afectado inventario, devolver las existencias. La
-    operación debe ser transaccional y segura ante concurrencia.
+  - Acordado: `pending` todavía no descuenta inventario. Al pasar a
+    `accepted`, se debe validar existencia y descontar inventario. Si el pedido
+    se cancela después de haber afectado inventario, devolver las existencias.
+    La operación debe ser transaccional y segura ante concurrencia.
 - **Cargo al folio.**
   - Actual: crear, aceptar o entregar un pedido no genera cargos en el folio;
     `charge_id` no se usa.
