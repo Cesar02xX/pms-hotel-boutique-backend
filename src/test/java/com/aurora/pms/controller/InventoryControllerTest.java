@@ -55,6 +55,7 @@ import com.aurora.pms.repository.InventoryMovementRepository;
 import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.InventoryService;
 import com.jayway.jsonpath.JsonPath;
 
@@ -445,7 +446,7 @@ class InventoryControllerTest extends AbstractCatalogApiTest {
 		User staff = createStaffUser();
 
 		mockMvc.perform(post(BASE_PATH + "/{itemId}/movements", item.getId())
-						.with(user(staff.getEmail()))
+						.with(userWithPermissions(staff.getEmail(), SecurityPermissions.INVENTORY_WRITE))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(movementBody("out", "consumption", 1)))
 				.andExpect(status().isCreated())

@@ -13,6 +13,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -40,6 +41,7 @@ import com.aurora.pms.repository.RoomFeatureRepository;
 import com.aurora.pms.repository.RoomRepository;
 import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.jayway.jsonpath.JsonPath;
 
 /**
@@ -107,7 +109,15 @@ abstract class AbstractCatalogApiTest {
 	}
 
 	protected RequestPostProcessor staffUser() {
-		return user("catalog.tester@aurora.test");
+		return userWithPermissions("catalog.tester@aurora.test", SecurityPermissions.ALL.toArray(String[]::new));
+	}
+
+	protected RequestPostProcessor userWithPermissions(String email, String... permissions) {
+		return user(email)
+				.authorities(SecurityPermissions.ALL.stream()
+						.filter(permission -> List.of(permissions).contains(permission))
+						.map(SimpleGrantedAuthority::new)
+						.toList());
 	}
 
 	protected static String uniqueSuffix() {

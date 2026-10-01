@@ -52,6 +52,7 @@ import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.PaymentRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.GuestFolioService;
 import com.aurora.pms.service.PaymentService;
 import com.jayway.jsonpath.JsonPath;
@@ -140,7 +141,7 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 		User staff = createStaffUser();
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/payments", booking.getId())
-						.with(user(staff.getEmail()))
+						.with(userWithPermissions(staff.getEmail(), SecurityPermissions.PAYMENTS_WRITE))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(paymentBody(1000L)))
 				.andExpect(status().isCreated())

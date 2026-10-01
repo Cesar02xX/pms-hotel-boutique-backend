@@ -43,6 +43,7 @@ import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.jayway.jsonpath.JsonPath;
 
 class GuestFolioControllerTest extends AbstractCatalogApiTest {
@@ -207,7 +208,7 @@ class GuestFolioControllerTest extends AbstractCatalogApiTest {
 		User staff = createStaffUser();
 
 		mockMvc.perform(post("/api/v1/bookings/{bookingId}/charges", booking.getId())
-						.with(user(staff.getEmail()))
+						.with(userWithPermissions(staff.getEmail(), SecurityPermissions.CHARGES_WRITE))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
 								{"description": "Agua", "quantity": 1, "unitPriceCents": 1500,

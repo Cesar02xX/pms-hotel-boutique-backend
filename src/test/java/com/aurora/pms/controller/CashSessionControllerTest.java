@@ -48,6 +48,7 @@ import com.aurora.pms.repository.CashMovementRepository;
 import com.aurora.pms.repository.CashSessionRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.CashSessionService;
 import com.jayway.jsonpath.JsonPath;
 
@@ -168,7 +169,7 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 		User otherCashier = createStaffUser("Other");
 
 		mockMvc.perform(post("/api/v1/cash-sessions/open")
-						.with(user(otherCashier.getEmail()))
+						.with(cashUser(otherCashier))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(openBody(5000L)))
 				.andExpect(status().isBadRequest())
@@ -379,7 +380,7 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 		User closer = createStaffUser("Closer");
 
 		mockMvc.perform(post("/api/v1/cash-sessions/{id}/close", sessionId)
-						.with(user(closer.getEmail()))
+						.with(cashUser(closer))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
 								{"countedBalanceCents": 11500, "notes": " Faltante ",
@@ -555,7 +556,11 @@ class CashSessionControllerTest extends AbstractCatalogApiTest {
 	// ---------- Helpers
 
 	private RequestPostProcessor cashierUser() {
-		return user(cashier.getEmail());
+		return cashUser(cashier);
+	}
+
+	private RequestPostProcessor cashUser(User user) {
+		return userWithPermissions(user.getEmail(), SecurityPermissions.CASH_READ, SecurityPermissions.CASH_WRITE);
 	}
 
 	private long countOpenSessions() {
