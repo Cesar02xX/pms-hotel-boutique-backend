@@ -13,6 +13,7 @@ import com.aurora.pms.dto.request.CreateRateRequest;
 import com.aurora.pms.dto.request.UpdateRateRequest;
 import com.aurora.pms.dto.response.RateResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.RateMapper;
 import com.aurora.pms.model.Rate;
@@ -51,7 +52,10 @@ public class RateServiceImpl implements RateService {
 	public RateResponse create(CreateRateRequest request) {
 		validateDateRange(request.validFrom(), request.validTo());
 
-		Rate rate = rateMapper.toEntity(request, getRoomType(request.roomTypeId()));
+		RoomType roomType = getRoomType(request.roomTypeId());
+		validateNoOverlap(null, roomType.getId(), request.validFrom(), request.validTo());
+
+		Rate rate = rateMapper.toEntity(request, roomType);
 		OffsetDateTime now = OffsetDateTime.now();
 		rate.setCreatedAt(now);
 		rate.setUpdatedAt(now);
@@ -72,6 +76,7 @@ public class RateServiceImpl implements RateService {
 		rateMapper.applyUpdate(rate, request);
 		// Se valida después de aplicar el update parcial, contra los valores resultantes.
 		validateDateRange(rate.getValidFrom(), rate.getValidTo());
+		validateNoOverlap(rate.getId(), rate.getRoomType().getId(), rate.getValidFrom(), rate.getValidTo());
 		rate.setUpdatedAt(OffsetDateTime.now());
 
 		return rateMapper.toResponse(rateRepository.save(rate));
@@ -86,5 +91,26 @@ public class RateServiceImpl implements RateService {
 		if (validFrom != null && validTo != null && validTo.isBefore(validFrom)) {
 			throw new BadRequestException("Valid to must be on or after valid from");
 		}
+	}
+
+	private void validateNoOverlap(UUID rateId, UUID roomTypeId, LocalDate validFrom, LocalDate validTo) {
+		boolean hasOverlap = rateId == null
+				? hasOverlapForCreate(roomTypeId, validFrom, validTo)
+				: hasOverlapForUpdate(rateId, roomTypeId, validFrom, validTo);
+		if (hasOverlap) {
+			throw new ConflictException("Rate validity overlaps an existing rate for the same room type");
+		}
+	}
+
+	private boolean hasOverlapForCreate(UUID roomTypeId, LocalDate validFrom, LocalDate validTo) {
+		return validTo == null
+				? rateRepository.existsOverlappingOpenEndedRoomTypeRate(roomTypeId, validFrom)
+				: rateRepository.existsOverlappingRoomTypeRate(roomTypeId, validFrom, validTo);
+	}
+
+	private boolean hasOverlapForUpdate(UUID rateId, UUID roomTypeId, LocalDate validFrom, LocalDate validTo) {
+		return validTo == null
+				? rateRepository.existsOverlappingOpenEndedRoomTypeRateExcludingId(roomTypeId, rateId, validFrom)
+				: rateRepository.existsOverlappingRoomTypeRateExcludingId(roomTypeId, rateId, validFrom, validTo);
 	}
 }

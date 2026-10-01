@@ -22,6 +22,7 @@ import com.aurora.pms.dto.request.CreateRoomRequest;
 import com.aurora.pms.dto.request.UpdateRoomRequest;
 import com.aurora.pms.dto.response.RoomResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.RoomMapper;
 import com.aurora.pms.model.Room;
@@ -111,6 +112,17 @@ class RoomServiceImplTest {
 		assertThat(response.roomNumber()).isEqualTo("101");
 		assertThat(response.createdAt()).isEqualTo(CREATED_AT);
 		assertThat(response.updatedAt()).isAfter(CREATED_AT);
+	}
+
+	@Test
+	void updateRejectsHousekeepingStatusChanges() {
+		Room room = room(roomType());
+		when(roomRepository.findById(room.getId())).thenReturn(Optional.of(room));
+
+		assertThatThrownBy(() -> roomService.update(room.getId(),
+				new UpdateRoomRequest(null, null, null, null, RoomHousekeepingStatus.dirty, null)))
+				.isInstanceOf(ConflictException.class);
+		verify(roomRepository, never()).save(any());
 	}
 
 	@Test

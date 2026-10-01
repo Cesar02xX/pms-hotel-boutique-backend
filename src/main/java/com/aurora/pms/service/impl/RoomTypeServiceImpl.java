@@ -1,6 +1,9 @@
 package com.aurora.pms.service.impl;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -9,6 +12,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,12 +21,15 @@ import com.aurora.pms.dto.request.CreateRoomTypeRequest;
 import com.aurora.pms.dto.request.UpdateRoomTypeRequest;
 import com.aurora.pms.dto.response.RoomTypeResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.RoomTypeMapper;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.RoomTypeFeature;
 import com.aurora.pms.model.RoomTypeFeatureId;
+import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
 import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
@@ -31,21 +38,36 @@ import com.aurora.pms.service.RoomTypeService;
 @Service
 public class RoomTypeServiceImpl implements RoomTypeService {
 
+	private static final Set<BookingStatus> ACTIVE_OR_FUTURE_CAPACITY_STATUSES = Set.of(
+			BookingStatus.pending,
+			BookingStatus.confirmed,
+			BookingStatus.checked_in
+	);
+
 	private final RoomTypeRepository roomTypeRepository;
 	private final RoomFeatureRepository roomFeatureRepository;
 	private final RoomTypeFeatureRepository roomTypeFeatureRepository;
+	private final BookingRepository bookingRepository;
 	private final RoomTypeMapper roomTypeMapper;
+	private final Clock clock;
+	private final ZoneId hotelZoneId;
 
 	public RoomTypeServiceImpl(
 			RoomTypeRepository roomTypeRepository,
 			RoomFeatureRepository roomFeatureRepository,
 			RoomTypeFeatureRepository roomTypeFeatureRepository,
-			RoomTypeMapper roomTypeMapper
+			BookingRepository bookingRepository,
+			RoomTypeMapper roomTypeMapper,
+			Clock clock,
+			@Value("${pms.hotel.zone-id}") String hotelZoneId
 	) {
 		this.roomTypeRepository = roomTypeRepository;
 		this.roomFeatureRepository = roomFeatureRepository;
 		this.roomTypeFeatureRepository = roomTypeFeatureRepository;
+		this.bookingRepository = bookingRepository;
 		this.roomTypeMapper = roomTypeMapper;
+		this.clock = clock;
+		this.hotelZoneId = ZoneId.of(hotelZoneId);
 	}
 
 	@Override
@@ -113,6 +135,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 				throw new BadRequestException("Room type code already exists: " + code);
 			}
 		}
+		validateCapacityReduction(roomType, request.capacity());
 
 		roomTypeMapper.applyUpdate(roomType, request);
 		roomType.setUpdatedAt(OffsetDateTime.now());
@@ -134,6 +157,22 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 		return roomTypeFeatureRepository.findByIdRoomTypeId(roomTypeId).stream()
 				.map(association -> association.getId().getRoomFeatureId())
 				.toList();
+	}
+
+	private void validateCapacityReduction(RoomType roomType, Integer newCapacity) {
+		if (newCapacity == null || newCapacity >= roomType.getCapacity()) {
+			return;
+		}
+
+		boolean hasOverCapacityBooking = bookingRepository.existsActiveOrFutureOverCapacity(
+				roomType.getId(),
+				ACTIVE_OR_FUTURE_CAPACITY_STATUSES,
+				LocalDate.now(clock.withZone(hotelZoneId)),
+				newCapacity
+		);
+		if (hasOverCapacityBooking) {
+			throw new ConflictException("Room type capacity cannot be reduced below existing active or future bookings");
+		}
 	}
 
 	/**

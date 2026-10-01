@@ -12,6 +12,7 @@ import com.aurora.pms.dto.request.CreateRoomRequest;
 import com.aurora.pms.dto.request.UpdateRoomRequest;
 import com.aurora.pms.dto.response.RoomResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.RoomMapper;
 import com.aurora.pms.model.Room;
@@ -72,6 +73,9 @@ public class RoomServiceImpl implements RoomService {
 	public RoomResponse update(UUID id, UpdateRoomRequest request) {
 		Room room = getRoom(id);
 
+		if (request.housekeepingStatus() != null) {
+			throw new ConflictException("Housekeeping status must be changed through Housekeeping");
+		}
 		if (request.roomNumber() != null) {
 			String roomNumber = request.roomNumber().trim();
 			if (roomRepository.existsByRoomNumberAndIdNot(roomNumber, id)) {
