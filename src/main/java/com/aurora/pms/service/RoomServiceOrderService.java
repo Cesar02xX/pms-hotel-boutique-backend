@@ -19,5 +19,5 @@ public interface RoomServiceOrderService {
 
 	RoomServiceOrderResponse createOrder(CreateRoomServiceOrderRequest request);
 
-	RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status);
+	RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status, String actorEmail);
 }

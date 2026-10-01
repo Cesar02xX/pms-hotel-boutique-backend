@@ -59,4 +59,9 @@ public class InventoryMovement {
 
 	@Column(name = "created_at", nullable = false)
 	private OffsetDateTime createdAt;
+
+	/** Pedido de Room Service que generó el movimiento; null en movimientos manuales. */
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "room_service_order_id")
+	private Order roomServiceOrder;
 }

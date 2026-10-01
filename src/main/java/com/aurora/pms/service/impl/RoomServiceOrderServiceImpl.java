@@ -22,6 +22,7 @@ import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Order;
 import com.aurora.pms.model.OrderItem;
 import com.aurora.pms.model.Product;
+import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
@@ -29,6 +30,7 @@ import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.OrderItemRepository;
 import com.aurora.pms.repository.OrderRepository;
 import com.aurora.pms.repository.ProductRepository;
+import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.RoomServiceOrderService;
 
 @Service
@@ -44,20 +46,26 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	private final BookingRepository bookingRepository;
 	private final OrderRepository orderRepository;
 	private final OrderItemRepository orderItemRepository;
+	private final UserRepository userRepository;
 	private final RoomServiceMapper roomServiceMapper;
+	private final RoomServiceOrderInventory orderInventory;
 
 	public RoomServiceOrderServiceImpl(
 			ProductRepository productRepository,
 			BookingRepository bookingRepository,
 			OrderRepository orderRepository,
 			OrderItemRepository orderItemRepository,
-			RoomServiceMapper roomServiceMapper
+			UserRepository userRepository,
+			RoomServiceMapper roomServiceMapper,
+			RoomServiceOrderInventory orderInventory
 	) {
 		this.productRepository = productRepository;
 		this.bookingRepository = bookingRepository;
 		this.orderRepository = orderRepository;
 		this.orderItemRepository = orderItemRepository;
+		this.userRepository = userRepository;
 		this.roomServiceMapper = roomServiceMapper;
+		this.orderInventory = orderInventory;
 	}
 
 	@Override
@@ -124,16 +132,33 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 
 	@Override
 	@Transactional
-	public RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status) {
+	public RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status, String actorEmail) {
+		// El bloqueo del pedido serializa sus cambios de estado: un mismo pedido
+		// no puede descontar ni devolver inventario dos veces en paralelo.
 		Order order = orderRepository.findByIdForUpdate(orderId)
 				.orElseThrow(() -> new ResourceNotFoundException("Room service order not found: " + orderId));
 		validateTransition(order.getStatus(), status);
+		List<OrderItem> items = orderItemRepository.findByOrderIdOrderById(orderId);
+		User actor = findActor(actorEmail);
+
+		if (status == OrderStatus.accepted) {
+			orderInventory.deduct(order, items, actor);
+		} else if (status == OrderStatus.cancelled) {
+			orderInventory.restore(order, actor);
+		}
 
 		order.setStatus(status);
 		order.setUpdatedAt(OffsetDateTime.now());
 		order = orderRepository.save(order);
 
-		return roomServiceMapper.toOrderResponse(order, orderItemRepository.findByOrderIdOrderById(orderId));
+		return roomServiceMapper.toOrderResponse(order, items);
+	}
+
+	private User findActor(String actorEmail) {
+		if (actorEmail == null) {
+			return null;
+		}
+		return userRepository.findByEmail(actorEmail).orElse(null);
 	}
 
 	/**

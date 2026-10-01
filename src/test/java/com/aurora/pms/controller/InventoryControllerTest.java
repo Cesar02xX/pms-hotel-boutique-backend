@@ -322,7 +322,9 @@ class InventoryControllerTest extends AbstractCatalogApiTest {
 			"in, sale",
 			"in, shrinkage",
 			"out, purchase",
-			"out, restock"
+			"out, restock",
+			"in, room_service_return",
+			"out, room_service_return"
 	})
 	void invalidTypeReasonCombinationReturnsBadRequest(String type, String reason) throws Exception {
 		InventoryItem item = createItem("Combinación", 10, 0, true);

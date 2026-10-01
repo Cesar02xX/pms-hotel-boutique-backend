@@ -25,3 +25,5 @@ databaseChangeLog:
       file: db/changelog/migrations/012-cash-housekeeping-traceability.sql
   - include:
       file: db/changelog/migrations/013-housekeeping-responsibility-traceability.sql
+  - include:
+      file: db/changelog/migrations/014-room-service-inventory.sql

@@ -15,6 +15,7 @@ public record InventoryMovementResponse(
 		UUID responsibleUserId,
 		OffsetDateTime occurredAt,
 		String notes,
-		OffsetDateTime createdAt
+		OffsetDateTime createdAt,
+		UUID roomServiceOrderId
 ) {
 }
