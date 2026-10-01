@@ -8,6 +8,8 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -122,6 +124,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	@Override
 	public RoomServiceOrderResponse createRoomServiceOrder(UUID bookingId, CreateGuestRoomServiceOrderRequest request) {
+		getOwnBooking(bookingId);
 		return roomServiceOrderService.createOrder(new CreateRoomServiceOrderRequest(bookingId, request.notes(), request.items()));
 	}
 
@@ -223,8 +226,29 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	private Booking getOwnBooking(UUID bookingId) {
 		Booking booking = bookingRepository.findById(bookingId)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
-		ensureOwn(bookingId, booking.getId());
+		currentGuestPrincipal().ifPresent(guest -> {
+			ensureOwn(guest.bookingId(), booking.getId());
+			ensureOwn(guest.guestId(), booking.getGuest().getId());
+			if (!normalizeCode(guest.linkCode()).equals(normalizeCode(booking.getGuestLinkCode()))) {
+				throw new AccessDeniedException("Guest cannot access this resource");
+			}
+			if (!LINKABLE_STATUSES.contains(booking.getStatus())) {
+				throw new AccessDeniedException("Guest stay is not active");
+			}
+			LocalDate today = LocalDate.now(HOTEL_ZONE);
+			if (today.isBefore(booking.getCheckIn()) || !today.isBefore(booking.getCheckOut())) {
+				throw new AccessDeniedException("Guest stay is not active");
+			}
+		});
 		return booking;
+	}
+
+	private static java.util.Optional<GuestPrincipal> currentGuestPrincipal() {
+		Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+		if (authentication != null && authentication.getPrincipal() instanceof GuestPrincipal guest) {
+			return java.util.Optional.of(guest);
+		}
+		return java.util.Optional.empty();
 	}
 
 	private static void ensureOwn(UUID expectedBookingId, UUID actualBookingId) {

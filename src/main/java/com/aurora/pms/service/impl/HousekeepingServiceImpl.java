@@ -77,7 +77,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 				RoomHousekeepingStatus.dirty,
 				RoomHousekeepingStatus.cleaning,
 				"start cleaning",
-				findActor(actorEmail)
+				requireActor(actorEmail)
 		);
 	}
 
@@ -89,7 +89,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 				RoomHousekeepingStatus.cleaning,
 				RoomHousekeepingStatus.clean,
 				"complete cleaning",
-				findActor(actorEmail)
+				requireActor(actorEmail)
 		);
 	}
 
@@ -101,7 +101,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 				RoomHousekeepingStatus.clean,
 				RoomHousekeepingStatus.inspected,
 				"inspect",
-				findActor(actorEmail)
+				requireActor(actorEmail)
 		);
 	}
 
@@ -156,7 +156,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		}
 		OffsetDateTime now = OffsetDateTime.now();
 		request.setStatus(ServiceRequestStatus.in_progress);
-		request.setStartedByUser(findActor(actorEmail));
+		request.setStartedByUser(requireActor(actorEmail));
 		request.setStartedAt(now);
 		request.setUpdatedAt(now);
 		return toStayoverResponse(serviceRequestRepository.save(request));
@@ -171,7 +171,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		}
 		OffsetDateTime now = OffsetDateTime.now();
 		request.setStatus(ServiceRequestStatus.completed);
-		request.setCompletedByUser(findActor(actorEmail));
+		request.setCompletedByUser(requireActor(actorEmail));
 		request.setCompletedAt(now);
 		request.setUpdatedAt(now);
 		return toStayoverResponse(serviceRequestRepository.save(request));

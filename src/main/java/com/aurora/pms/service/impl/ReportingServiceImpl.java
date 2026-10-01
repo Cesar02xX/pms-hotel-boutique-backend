@@ -2,6 +2,8 @@ package com.aurora.pms.service.impl;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +26,7 @@ import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Deposit;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ChargeStatus;
+import com.aurora.pms.model.enums.DepositStatus;
 import com.aurora.pms.model.enums.PaymentStatus;
 import com.aurora.pms.repository.AuditLogRepository;
 import com.aurora.pms.repository.BookingRepository;
@@ -36,6 +39,8 @@ import com.aurora.pms.service.ReportingService;
 
 @Service
 public class ReportingServiceImpl implements ReportingService {
+
+	private static final ZoneId HOTEL_ZONE = ZoneId.of("America/Guatemala");
 
 	private final BookingRepository bookingRepository;
 	private final ChargeRepository chargeRepository;
@@ -74,6 +79,7 @@ public class ReportingServiceImpl implements ReportingService {
 	public StayReceiptResponse stayReceipt(UUID bookingId) {
 		long charges = chargeRepository.sumAmountCentsByBookingIdExcludingStatus(bookingId, ChargeStatus.voided);
 		long payments = paymentRepository.sumAmountCentsByBookingIdAndStatus(bookingId, PaymentStatus.completed);
+		long appliedDeposits = depositRepository.sumAmountCentsByBookingIdAndStatus(bookingId, DepositStatus.applied);
 		List<ChargeResponse> chargeResponses = chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(bookingId)
 				.stream()
 				.map(guestFolioMapper::toChargeResponse)
@@ -86,7 +92,7 @@ public class ReportingServiceImpl implements ReportingService {
 				.map(this::toDepositResponse)
 				.toList();
 		return new StayReceiptResponse(guestAccessService.getStay(bookingId), chargeResponses, paymentResponses,
-				depositResponses, charges - payments, "GTQ");
+				depositResponses, charges - payments - appliedDeposits, "GTQ");
 	}
 
 	@Override
@@ -95,13 +101,14 @@ public class ReportingServiceImpl implements ReportingService {
 		if (to.isBefore(from)) {
 			throw new BadRequestException("to must not be before from");
 		}
-		List<Booking> bookings = bookingRepository.findAll().stream()
-				.filter(booking -> !booking.getCheckOut().isBefore(from) && !booking.getCheckIn().isAfter(to))
-				.toList();
-		long revenueCents = bookings.stream()
-				.mapToLong(booking -> paymentRepository.sumAmountCentsByBookingIdAndStatus(
-						booking.getId(), PaymentStatus.completed))
-				.sum();
+		OffsetDateTime fromDateTime = from.atStartOfDay(HOTEL_ZONE).toOffsetDateTime();
+		OffsetDateTime toExclusiveDateTime = to.plusDays(1).atStartOfDay(HOTEL_ZONE).toOffsetDateTime();
+		List<Booking> bookings = bookingRepository.findOverlappingDates(from, to);
+		long revenueCents = paymentRepository.sumAmountCentsByStatusAndPaidAtRange(
+				PaymentStatus.completed,
+				fromDateTime,
+				toExclusiveDateTime
+		);
 		Map<BookingStatus, Long> reservationsByStatus = bookings.stream()
 				.collect(Collectors.groupingBy(Booking::getStatus, Collectors.counting()));
 		Map<String, Object> report = new LinkedHashMap<>();
@@ -113,10 +120,20 @@ public class ReportingServiceImpl implements ReportingService {
 		report.put("occupancyNights", bookings.stream()
 				.filter(booking -> booking.getStatus() == BookingStatus.checked_in
 						|| booking.getStatus() == BookingStatus.checked_out)
-				.count());
+				.mapToLong(booking -> occupiedNightsInRange(booking, from, to))
+				.sum());
 		report.put("bookingsByStatus", reservationsByStatus);
-		report.put("roomServiceOrders", orderRepository.findWithFilters(null, null).size());
+		report.put("roomServiceOrders", orderRepository.countByRequestedAtRange(fromDateTime, toExclusiveDateTime));
 		return report;
+	}
+
+	private long occupiedNightsInRange(Booking booking, LocalDate from, LocalDate to) {
+		LocalDate start = booking.getCheckIn().isBefore(from) ? from : booking.getCheckIn();
+		LocalDate endExclusive = booking.getCheckOut().isAfter(to.plusDays(1)) ? to.plusDays(1) : booking.getCheckOut();
+		if (!endExclusive.isAfter(start)) {
+			return 0;
+		}
+		return ChronoUnit.DAYS.between(start, endExclusive);
 	}
 
 	@Override
