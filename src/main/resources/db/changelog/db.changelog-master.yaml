@@ -13,3 +13,5 @@ databaseChangeLog:
       file: db/changelog/migrations/006-inventory-cash-admin.sql
   - include:
       file: db/changelog/migrations/007-auth-refresh-tokens.sql
+  - include:
+      file: db/changelog/migrations/008-security-permissions.sql
