@@ -185,4 +185,136 @@ class GuestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.errors.firstName").exists())
 				.andExpect(jsonPath("$.errors.email").exists());
 	}
+
+	@Test
+	void createGuestWithDuplicateEmailReturnsConflict() throws Exception {
+		Guest existing = createGuest();
+
+		mockMvc.perform(post("/api/v1/guests")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Ana", "lastName": "Lopez", "email": "%s"}
+								""".formatted(existing.getEmail().toUpperCase())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409))
+				.andExpect(jsonPath("$.message").value(startsWith("Guest email already exists")));
+	}
+
+	@Test
+	void createGuestWithDuplicateDocumentReturnsConflict() throws Exception {
+		Guest existing = createGuest();
+
+		mockMvc.perform(post("/api/v1/guests")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Ana", "lastName": "Lopez", "documentType": "passport",
+								 "documentNumber": "%s"}
+								""".formatted(existing.getDocumentNumber())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409))
+				.andExpect(jsonPath("$.message").value(startsWith("Guest document already exists")));
+	}
+
+	@Test
+	void createGuestWithSameDocumentNumberButDifferentTypeReturnsCreated() throws Exception {
+		Guest existing = createGuest();
+
+		MvcResult result = mockMvc.perform(post("/api/v1/guests")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Ana", "lastName": "Lopez", "documentType": "national_id",
+								 "documentNumber": "%s"}
+								""".formatted(existing.getDocumentNumber())))
+				.andExpect(status().isCreated())
+				.andReturn();
+
+		trackCreatedGuest(result);
+	}
+
+	@Test
+	void createGuestsWithoutOptionalIdentifiersDoesNotConflict() throws Exception {
+		String[] bodies = {
+				"""
+				{"firstName": "Ana", "lastName": "Lopez"}
+				""",
+				"""
+				{"firstName": "Luis", "lastName": "Garcia", "email": "", "documentType": "passport",
+				 "documentNumber": "  "}
+				""",
+				"""
+				{"firstName": "Sofia", "lastName": "Ramirez", "documentType": "passport"}
+				""",
+				"""
+				{"firstName": "Carlos", "lastName": "Mendez", "documentType": "passport"}
+				"""
+		};
+
+		for (String body : bodies) {
+			MvcResult result = mockMvc.perform(post("/api/v1/guests")
+							.with(staffUser())
+							.contentType(MediaType.APPLICATION_JSON)
+							.content(body))
+					.andExpect(status().isCreated())
+					.andReturn();
+			trackCreatedGuest(result);
+		}
+	}
+
+	@Test
+	void updateGuestWithAnotherGuestEmailReturnsConflict() throws Exception {
+		Guest existing = createGuest();
+		Guest guest = createGuest();
+
+		mockMvc.perform(put("/api/v1/guests/{id}", guest.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Maria", "lastName": "Perez", "email": "%s"}
+								""".formatted(existing.getEmail())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409))
+				.andExpect(jsonPath("$.message").value(startsWith("Guest email already exists")));
+
+		assertThat(guestRepository.findById(guest.getId()).orElseThrow().getEmail()).isEqualTo(guest.getEmail());
+	}
+
+	@Test
+	void updateGuestWithAnotherGuestDocumentReturnsConflict() throws Exception {
+		Guest existing = createGuest();
+		Guest guest = createGuest();
+
+		mockMvc.perform(put("/api/v1/guests/{id}", guest.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Maria", "lastName": "Perez", "documentType": "passport",
+								 "documentNumber": "%s"}
+								""".formatted(existing.getDocumentNumber())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409))
+				.andExpect(jsonPath("$.message").value(startsWith("Guest document already exists")));
+
+		assertThat(guestRepository.findById(guest.getId()).orElseThrow().getDocumentNumber())
+				.isEqualTo(guest.getDocumentNumber());
+	}
+
+	@Test
+	void updateGuestKeepingOwnEmailAndDocumentReturnsOk() throws Exception {
+		Guest guest = createGuest();
+
+		mockMvc.perform(put("/api/v1/guests/{id}", guest.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"firstName": "Maria", "lastName": "Perez", "email": "%s",
+								 "documentType": "passport", "documentNumber": "%s"}
+								""".formatted(guest.getEmail(), guest.getDocumentNumber())))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.firstName").value("Maria"))
+				.andExpect(jsonPath("$.email").value(guest.getEmail()))
+				.andExpect(jsonPath("$.documentNumber").value(guest.getDocumentNumber()));
+	}
 }
