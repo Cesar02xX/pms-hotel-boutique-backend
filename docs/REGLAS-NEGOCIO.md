@@ -191,6 +191,10 @@ implementadas en Java.
 ## 8. Acompañantes (`/bookings/{bookingId}/companions`)
 
 - Campos obligatorios: `firstName`, `lastName` y `guestType` (`adult`/`child`).
+- La administración normal de acompañantes (crear, editar o eliminar) solo se
+  permite antes del check-in, mientras la reserva esté en estado `pending` o
+  `confirmed`. Si la reserva está `checked_in`, `checked_out`, `cancelled` o
+  `no_show`, esas operaciones responden `409`.
 - **El huésped principal no puede registrarse como acompañante.** Se detecta
   por el mismo número de documento o por el mismo nombre y apellido
   (ignorando mayúsculas y espacios).
@@ -484,13 +488,6 @@ el estado actual, se deja explícita la diferencia entre:
     nuevo check-in hasta completar el proceso requerido de Housekeeping.
 
 ### Acompañantes
-- **Cambios por estado de reserva.**
-  - Actual: se pueden agregar, editar o borrar acompañantes de una reserva ya
-    `checked_in`, y también de una reserva cancelada.
-  - Acordado: permitir administrar acompañantes antes del check-in mientras la
-    reserva siga en un estado válido para preparación. Después del check-in,
-    bloquear altas, modificaciones y eliminaciones normales. También bloquear
-    cambios cuando la reserva esté `cancelled`, `no_show` o `checked_out`.
 - **Validación en check-in.**
   - Actual: el check-in valida huésped titular + acompañantes contra adultos,
     niños y capacidad.
