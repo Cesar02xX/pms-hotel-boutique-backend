@@ -11,7 +11,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -218,6 +224,59 @@ class GuestControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void concurrentCreateGuestWithSameEmailAndDocumentReturnsOneCreatedAndOneConflict() throws Exception {
+		String suffix = uniqueSuffix();
+		String email = "concurrent.%s@aurora.test".formatted(suffix);
+		String documentNumber = "CON-" + suffix;
+		String body = """
+				{"firstName": "Ana", "lastName": "Lopez", "email": "%s",
+				 "phone": "+502 5555 0202", "nationality": "GT", "documentType": "passport",
+				 "documentNumber": "%s"}
+				""".formatted(email, documentNumber);
+
+		CountDownLatch ready = new CountDownLatch(2);
+		CountDownLatch start = new CountDownLatch(1);
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+
+		try {
+			List<Future<MvcResult>> results = List.of(
+					executor.submit(() -> performConcurrentCreate(body, ready, start)),
+					executor.submit(() -> performConcurrentCreate(body, ready, start))
+			);
+
+			assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+			start.countDown();
+
+			List<MvcResult> responses = results.stream()
+					.map(this::getMvcResult)
+					.toList();
+
+			assertThat(responses)
+					.extracting(response -> response.getResponse().getStatus())
+					.containsExactlyInAnyOrder(201, 409);
+
+			responses.stream()
+					.filter(response -> response.getResponse().getStatus() == 201)
+					.findFirst()
+					.ifPresent(result -> {
+						try {
+							trackCreatedGuest(result);
+						} catch (Exception exception) {
+							throw new AssertionError("Could not track created guest", exception);
+						}
+					});
+
+			assertThat(guestRepository.findAll().stream()
+					.filter(guest -> email.equalsIgnoreCase(guest.getEmail()))
+					.filter(guest -> "passport".equals(guest.getDocumentType().name()))
+					.filter(guest -> documentNumber.equals(guest.getDocumentNumber()))
+					.count()).isEqualTo(1);
+		} finally {
+			executor.shutdownNow();
+		}
+	}
+
+	@Test
 	void createGuestWithSameDocumentNumberButDifferentTypeReturnsCreated() throws Exception {
 		Guest existing = createGuest();
 
@@ -316,5 +375,23 @@ class GuestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.firstName").value("Maria"))
 				.andExpect(jsonPath("$.email").value(guest.getEmail()))
 				.andExpect(jsonPath("$.documentNumber").value(guest.getDocumentNumber()));
+	}
+
+	private MvcResult performConcurrentCreate(String body, CountDownLatch ready, CountDownLatch start) throws Exception {
+		ready.countDown();
+		assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+		return mockMvc.perform(post("/api/v1/guests")
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(body))
+				.andReturn();
+	}
+
+	private MvcResult getMvcResult(Future<MvcResult> future) {
+		try {
+			return future.get(5, TimeUnit.SECONDS);
+		} catch (Exception exception) {
+			throw new AssertionError("Concurrent guest creation did not finish", exception);
+		}
 	}
 }
