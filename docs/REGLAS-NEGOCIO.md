@@ -643,6 +643,11 @@ implementadas en Java.
   no acepta una reserva arbitraria.
 - El huésped puede cancelar usando las mismas reglas del flujo actual de Room
   Service. Un pedido ajeno responde `403`.
+- **Menú (`GET /guest/room-service/products`):** mismo catálogo que
+  `GET /room-service/products` (solo productos **activos**, ordenados por
+  nombre, filtro opcional `category`), pero con identidad de huésped: el token
+  de huésped no tiene `room-service.read`. Sin token → `401`; con token de
+  personal → `403`.
 
 ### Solicitudes del huésped
 - `/guest/housekeeping/requests` crea y consulta stayover cleanings reales
@@ -664,6 +669,10 @@ implementadas en Java.
   cancelaciones de limpieza hechas desde el portal huésped.
 - El huésped lista solo las propias, consulta contador de no leídas y marca
   como leída. El backend evita duplicados por `booking + resource + type`.
+- `POST /guest/notifications/read-all` marca como leídas, en una sola
+  transacción, todas las notificaciones no leídas de la reserva del JWT y
+  devuelve el listado actualizado. Es idempotente y nunca toca notificaciones
+  de otra reserva.
 
 ## 18. Administración, reportes y auditoría
 

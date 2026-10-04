@@ -14,6 +14,8 @@ public interface GuestNotificationRepository extends JpaRepository<GuestNotifica
 
 	long countByBookingIdAndReadAtIsNull(UUID bookingId);
 
+	List<GuestNotification> findByBookingIdAndReadAtIsNull(UUID bookingId);
+
 	Optional<GuestNotification> findByIdAndBookingId(UUID id, UUID bookingId);
 
 	boolean existsByBookingIdAndResourceTypeAndResourceIdAndType(
