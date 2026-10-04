@@ -15,4 +15,7 @@ public interface GuestNotificationService {
 	long countUnread(UUID bookingId);
 
 	GuestNotificationResponse markRead(UUID bookingId, UUID notificationId);
+
+	/** Marca como leidas todas las notificaciones no leidas de la reserva y devuelve cuantas cambio. */
+	int markAllRead(UUID bookingId);
 }

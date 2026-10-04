@@ -74,6 +74,15 @@ public class GuestNotificationServiceImpl implements GuestNotificationService {
 		return toResponse(notification);
 	}
 
+	@Override
+	@Transactional
+	public int markAllRead(UUID bookingId) {
+		OffsetDateTime now = OffsetDateTime.now();
+		List<GuestNotification> unread = notificationRepository.findByBookingIdAndReadAtIsNull(bookingId);
+		unread.forEach(notification -> notification.setReadAt(now));
+		return unread.size();
+	}
+
 	private GuestNotificationResponse toResponse(GuestNotification notification) {
 		return new GuestNotificationResponse(
 				notification.getId(),

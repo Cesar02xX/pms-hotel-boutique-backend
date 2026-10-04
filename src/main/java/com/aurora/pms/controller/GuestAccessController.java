@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
@@ -23,11 +24,14 @@ import com.aurora.pms.dto.response.GuestLinkResponse;
 import com.aurora.pms.dto.response.GuestNotificationResponse;
 import com.aurora.pms.dto.response.GuestStayResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
+import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
+import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.security.GuestPrincipal;
 import com.aurora.pms.service.GuestAccessService;
 import com.aurora.pms.service.AdminCatalogService;
 import com.aurora.pms.service.GuestNotificationService;
+import com.aurora.pms.service.RoomServiceOrderService;
 
 import jakarta.validation.Valid;
 
@@ -38,15 +42,18 @@ public class GuestAccessController {
 	private final GuestAccessService guestAccessService;
 	private final AdminCatalogService adminCatalogService;
 	private final GuestNotificationService notificationService;
+	private final RoomServiceOrderService roomServiceOrderService;
 
 	public GuestAccessController(
 			GuestAccessService guestAccessService,
 			AdminCatalogService adminCatalogService,
-			GuestNotificationService notificationService
+			GuestNotificationService notificationService,
+			RoomServiceOrderService roomServiceOrderService
 	) {
 		this.guestAccessService = guestAccessService;
 		this.adminCatalogService = adminCatalogService;
 		this.notificationService = notificationService;
+		this.roomServiceOrderService = roomServiceOrderService;
 	}
 
 	@PostMapping("/auth/link")
@@ -171,5 +178,20 @@ public class GuestAccessController {
 			@PathVariable UUID notificationId
 	) {
 		return ResponseEntity.ok(notificationService.markRead(guest.bookingId(), notificationId));
+	}
+
+	/** Marca todas las notificaciones de la reserva del token y devuelve el listado actualizado. */
+	@PostMapping("/notifications/read-all")
+	public ResponseEntity<List<GuestNotificationResponse>> markAllRead(@AuthenticationPrincipal GuestPrincipal guest) {
+		notificationService.markAllRead(guest.bookingId());
+		return ResponseEntity.ok(notificationService.findOwn(guest.bookingId()));
+	}
+
+	/** Menu del huesped: solo productos activos, mismo catalogo que usa Room Service. */
+	@GetMapping("/room-service/products")
+	public ResponseEntity<List<RoomServiceProductResponse>> roomServiceProducts(
+			@RequestParam(required = false) ProductCategory category
+	) {
+		return ResponseEntity.ok(roomServiceOrderService.findProducts(category));
 	}
 }
