@@ -164,7 +164,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	@Override
 	public List<StayoverCleaningResponse> findHousekeepingRequests(UUID bookingId) {
 		getOwnBooking(bookingId);
-		return housekeepingService.findStayoverCleanings(bookingId);
+		return housekeepingService.findStayoverCleanings(bookingId, null);
 	}
 
 	@Override
@@ -187,7 +187,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 				"housekeeping_request",
 				request.getId()
 		);
-		return housekeepingService.findStayoverCleanings(bookingId).stream()
+		return housekeepingService.findStayoverCleanings(bookingId, null).stream()
 				.filter(response -> response.id().equals(requestId))
 				.findFirst()
 				.orElseThrow(() -> new ResourceNotFoundException("Stayover cleaning not found: " + requestId));

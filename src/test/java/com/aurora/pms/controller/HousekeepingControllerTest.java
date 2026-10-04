@@ -1,7 +1,9 @@
 package com.aurora.pms.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -25,19 +27,30 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.Room;
+import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.User;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
+import com.aurora.pms.model.enums.ServiceRequestStatus;
+import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.model.enums.UserStatus;
 import com.aurora.pms.repository.RoleRepository;
+import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.HousekeepingService;
 
 class HousekeepingControllerTest extends AbstractCatalogApiTest {
+
+	private static final String STAYOVER_PATH = "/api/v1/housekeeping/rooms/stayover-cleanings";
 
 	@Autowired
 	private HousekeepingService housekeepingService;
@@ -48,9 +61,13 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private RoleRepository roleRepository;
 
+	@Autowired
+	private ServiceRequestRepository serviceRequestRepository;
+
 	private final List<UUID> userIds = new ArrayList<>();
 	private final List<UUID> roleIds = new ArrayList<>();
 	private final List<UUID> housekeepingRoomIds = new ArrayList<>();
+	private final List<UUID> serviceRequestIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpHousekeepingActor() {
@@ -79,6 +96,8 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpHousekeepingActor() {
+		serviceRequestRepository.deleteAllById(serviceRequestIds);
+		serviceRequestIds.clear();
 		roomRepository.deleteAllById(housekeepingRoomIds);
 		userRepository.deleteAllById(userIds);
 		roleRepository.deleteAllById(roleIds);
@@ -246,6 +265,108 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 						.with(staffUser()))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.status").value(400));
+	}
+
+	@Test
+	void listStayoverCleaningsWithoutBookingReturnsOnlyHousekeepingTasks() throws Exception {
+		Booking first = createCheckedInBooking();
+		Booking second = createCheckedInBooking();
+		UUID firstTask = createServiceRequest(first, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID secondTask = createServiceRequest(second, ServiceRequestType.housekeeping, ServiceRequestStatus.in_progress);
+		UUID concierge = createServiceRequest(first, ServiceRequestType.concierge, ServiceRequestStatus.pending);
+
+		mockMvc.perform(get(STAYOVER_PATH).with(housekeepingUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(firstTask.toString())))
+				.andExpect(jsonPath("$[*].id", hasItem(secondTask.toString())))
+				.andExpect(jsonPath("$[*].id", not(hasItem(concierge.toString()))))
+				.andExpect(jsonPath("$[?(@.id == '%s')].roomNumber".formatted(firstTask))
+						.value(hasItem(first.getRoom().getRoomNumber())));
+	}
+
+	@Test
+	void listStayoverCleaningsFiltersByStatus() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID pending = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID inProgress = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.in_progress);
+
+		mockMvc.perform(get(STAYOVER_PATH).param("status", "pending").with(housekeepingUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(pending.toString())))
+				.andExpect(jsonPath("$[*].id", not(hasItem(inProgress.toString()))))
+				.andExpect(jsonPath("$[*].status", everyItem(is("pending"))));
+	}
+
+	@Test
+	void listStayoverCleaningsKeepsBookingFilter() throws Exception {
+		Booking booking = createCheckedInBooking();
+		Booking other = createCheckedInBooking();
+		UUID own = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID completed = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.completed);
+		UUID foreign = createServiceRequest(other, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+
+		mockMvc.perform(get(STAYOVER_PATH).param("bookingId", booking.getId().toString()).with(housekeepingUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(2))
+				.andExpect(jsonPath("$[*].bookingId", everyItem(is(booking.getId().toString()))))
+				.andExpect(jsonPath("$[*].id", not(hasItem(foreign.toString()))));
+
+		mockMvc.perform(get(STAYOVER_PATH)
+						.param("bookingId", booking.getId().toString())
+						.param("status", "pending")
+						.with(housekeepingUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(1))
+				.andExpect(jsonPath("$[0].id").value(own.toString()))
+				.andExpect(jsonPath("$[*].id", not(hasItem(completed.toString()))));
+	}
+
+	@Test
+	void listStayoverCleaningsForMissingBookingReturnsNotFound() throws Exception {
+		mockMvc.perform(get(STAYOVER_PATH).param("bookingId", UUID.randomUUID().toString()).with(housekeepingUser()))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.status").value(404));
+	}
+
+	@Test
+	void listStayoverCleaningsWithInvalidStatusReturnsBadRequest() throws Exception {
+		mockMvc.perform(get(STAYOVER_PATH).param("status", "done").with(housekeepingUser()))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value(400));
+	}
+
+	/** Mismos permisos que el rol housekeeping sembrado: sin bookings.read. */
+	private RequestPostProcessor housekeepingUser() {
+		return userWithPermissions(
+				"catalog.tester@aurora.test",
+				SecurityPermissions.HOUSEKEEPING_READ,
+				SecurityPermissions.HOUSEKEEPING_WRITE,
+				SecurityPermissions.ROOMS_READ
+		);
+	}
+
+	private Booking createCheckedInBooking() {
+		RoomType roomType = createRoomType();
+		Booking booking = createBooking(createGuest(), roomType, createRoom(roomType), createRate(roomType));
+		booking.setStatus(BookingStatus.checked_in);
+		bookingRepository.save(booking);
+		return booking;
+	}
+
+	private UUID createServiceRequest(Booking booking, ServiceRequestType type, ServiceRequestStatus status) {
+		ServiceRequest request = new ServiceRequest();
+		request.setBooking(booking);
+		request.setRoom(booking.getRoom());
+		request.setGuest(booking.getGuest());
+		request.setType(type);
+		request.setDescription("Solicitud " + type);
+		request.setStatus(status);
+		request.setRequestedAt(now());
+		request.setCreatedAt(now());
+		request.setUpdatedAt(now());
+		request = serviceRequestRepository.save(request);
+		serviceRequestIds.add(request.getId());
+		return request.getId();
 	}
 
 	private Room createRoomWithHousekeepingStatus(RoomHousekeepingStatus housekeepingStatus) {
