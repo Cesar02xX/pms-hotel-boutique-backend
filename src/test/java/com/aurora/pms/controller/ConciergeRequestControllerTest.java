@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Role;
@@ -44,6 +45,7 @@ import com.aurora.pms.repository.ChargeRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.jayway.jsonpath.JsonPath;
 
 class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
@@ -95,6 +97,9 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.bookingId").value(booking.getId().toString()))
 				.andExpect(jsonPath("$.roomId").value(booking.getRoom().getId().toString()))
 				.andExpect(jsonPath("$.guestId").value(booking.getGuest().getId().toString()))
+				.andExpect(jsonPath("$.roomNumber").value(
+						roomRepository.findById(booking.getRoom().getId()).orElseThrow().getRoomNumber()))
+				.andExpect(jsonPath("$.guestName").value(guestFullName(booking)))
 				.andExpect(jsonPath("$.responsibleUserId").value(nullValue()))
 				.andExpect(jsonPath("$.type").value("concierge"))
 				.andExpect(jsonPath("$.status").value("pending"))
@@ -536,7 +541,101 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isUnauthorized());
 	}
 
+	// ---------- Responsable automatico y notas durante la atencion
+
+	@Test
+	void acceptingWithoutResponsibleAssignsAuthenticatedUser() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Reservar tour");
+		User actor = createResponsibleUser();
+
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(actingAs(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(statusBody("accepted")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.responsibleUserId").value(actor.getId().toString()))
+				.andExpect(jsonPath("$.responsibleUserName").value("Concierge Responsible"))
+				.andExpect(jsonPath("$.responsibleUserEmail").value(actor.getEmail()));
+	}
+
+	@Test
+	void existingResponsibleIsNotReplacedByActor() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Reservar tour");
+		User assigned = createResponsibleUser();
+		User actor = createResponsibleUser();
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(actingAs(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted", "responsibleUserId": "%s"}
+								""".formatted(assigned.getId())))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(actingAs(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(statusBody("in_progress")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.responsibleUserId").value(assigned.getId().toString()));
+	}
+
+	@Test
+	void rejectingOrCancellingDoesNotAssignActor() throws Exception {
+		User actor = createResponsibleUser();
+		for (String target : List.of("rejected", "cancelled")) {
+			String id = createRequest(createConciergeBooking(), "Reservar tour");
+			mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+							.with(actingAs(actor))
+							.contentType(MediaType.APPLICATION_JSON)
+							.content(statusBody(target)))
+					.andExpect(status().isOk())
+					.andExpect(jsonPath("$.responsibleUserId").value(nullValue()))
+					.andExpect(jsonPath("$.responsibleUserName").value(nullValue()));
+		}
+	}
+
+	@Test
+	void notesCanBeReplacedWhileRequestIsInProgress() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Reservar tour", "Nota inicial");
+		changeStatus(id, "accepted");
+		changeStatus(id, "in_progress");
+
+		mockMvc.perform(put(BASE_PATH + "/{requestId}", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"notes": "  Proveedor confirmado para las 18:00  "}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("in_progress"))
+				.andExpect(jsonPath("$.notes").value("Proveedor confirmado para las 18:00"));
+	}
+
+	@Test
+	void terminalRequestCannotBeEdited() throws Exception {
+		String id = createRequest(createConciergeBooking(), "Reservar tour");
+		changeStatus(id, "rejected");
+
+		mockMvc.perform(put(BASE_PATH + "/{requestId}", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"notes": "Otra nota"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Concierge request is already rejected"));
+	}
+
 	// ---------- Helpers
+
+	private String guestFullName(Booking booking) {
+		var guest = guestRepository.findById(booking.getGuest().getId()).orElseThrow();
+		return guest.getFirstName() + " " + guest.getLastName();
+	}
+
+	private RequestPostProcessor actingAs(User user) {
+		return userWithPermissions(user.getEmail(), SecurityPermissions.ALL.toArray(String[]::new));
+	}
 
 	private Booking createConciergeBooking() {
 		RoomType roomType = createRoomType();

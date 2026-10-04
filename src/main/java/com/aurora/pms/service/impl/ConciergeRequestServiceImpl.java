@@ -42,6 +42,13 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 	private static final Set<BookingStatus> STATUSES_WITH_REQUESTS =
 			EnumSet.of(BookingStatus.confirmed, BookingStatus.checked_in);
 
+	/** Estados en los que alguien toma la solicitud: rechazar o cancelar no asigna responsable. */
+	private static final Set<ServiceRequestStatus> STATUSES_ASSIGNING_ACTOR = EnumSet.of(
+			ServiceRequestStatus.accepted,
+			ServiceRequestStatus.in_progress,
+			ServiceRequestStatus.completed
+	);
+
 	private static final Map<ServiceRequestStatus, Set<ServiceRequestStatus>> TRANSITIONS = Map.of(
 			ServiceRequestStatus.pending, EnumSet.of(ServiceRequestStatus.accepted, ServiceRequestStatus.rejected,
 					ServiceRequestStatus.cancelled),
@@ -117,7 +124,12 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 	public ConciergeRequestResponse update(UUID requestId, UpdateConciergeRequestRequest request) {
 		ServiceRequest serviceRequest = serviceRequestRepository.findByIdAndTypeForUpdate(requestId, TYPE)
 				.orElseThrow(() -> notFound(requestId));
-		if (serviceRequest.getStatus() != ServiceRequestStatus.pending) {
+		ServiceRequestStatus status = serviceRequest.getStatus();
+		if (TRANSITIONS.get(status).isEmpty()) {
+			throw new BadRequestException("Concierge request is already " + status);
+		}
+		// Las notas se pueden actualizar mientras se atiende; la descripcion solo antes de aceptar.
+		if (request.description() != null && status != ServiceRequestStatus.pending) {
 			throw new BadRequestException("Only pending concierge requests can be edited");
 		}
 
@@ -135,6 +147,16 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 	@Override
 	@Transactional
 	public ConciergeRequestResponse updateStatus(UUID requestId, UpdateConciergeRequestStatusRequest request) {
+		return updateStatus(requestId, request, null);
+	}
+
+	@Override
+	@Transactional
+	public ConciergeRequestResponse updateStatus(
+			UUID requestId,
+			UpdateConciergeRequestStatusRequest request,
+			String actorEmail
+	) {
 		// El bloqueo evita que dos cambios simultáneos salten el flujo de estados.
 		ServiceRequest serviceRequest = serviceRequestRepository.findByIdAndTypeForUpdate(requestId, TYPE)
 				.orElseThrow(() -> notFound(requestId));
@@ -151,6 +173,10 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 		serviceRequest.setStatus(target);
 		if (request.responsibleUserId() != null) {
 			serviceRequest.setResponsibleUser(findResponsibleUser(request.responsibleUserId()));
+		} else if (serviceRequest.getResponsibleUser() == null
+				&& actorEmail != null
+				&& STATUSES_ASSIGNING_ACTOR.contains(target)) {
+			userRepository.findByEmail(actorEmail).ifPresent(serviceRequest::setResponsibleUser);
 		}
 		serviceRequest.setNotes(appendNotes(serviceRequest.getNotes(), trimToNull(request.notes())));
 		serviceRequest.setUpdatedAt(OffsetDateTime.now(clock));

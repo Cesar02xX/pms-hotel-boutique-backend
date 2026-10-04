@@ -391,10 +391,22 @@ implementadas en Java.
   - `responsibleUserId` es opcional en el cambio de estado. Si se envía, debe
     existir en `users`; el backend lo asocia a la solicitud para mantener la
     trazabilidad del responsable.
+  - Si no se envía `responsibleUserId` y la solicitud aún no tiene
+    responsable, al pasar a `accepted`, `in_progress` o `completed` se asigna
+    el usuario autenticado (si existe en `users`). Un responsable ya asignado
+    no se reemplaza, y rechazar o cancelar no asigna a nadie. Las acciones del
+    portal del huésped no asignan responsable.
+  - La respuesta incluye `responsibleUserName` y `responsibleUserEmail`, para
+    mostrar al responsable sin acceso a `/admin/users`, y `roomNumber` y
+    `guestName`, porque el rol `concierge` no tiene `rooms.read`.
   - El cambio de estado bloquea la solicitud, así que dos cambios simultáneos
     no pueden saltarse el flujo.
-- **Edición (`PUT /{requestId}`):** solo solicitudes `pending`. Permite cambiar
-  `description` y/o `notes`; al menos un campo debe venir en el body.
+- **Edición (`PUT /{requestId}`):** al menos un campo debe venir en el body.
+  - `notes` se puede reemplazar mientras la solicitud está `pending`,
+    `accepted` o `in_progress` (vacío las limpia).
+  - `description` solo se puede cambiar en `pending`; después → `400`.
+  - Una solicitud terminal (`completed`, `rejected`, `cancelled`) no se puede
+    editar → `400`.
 - **Sin cargos:** el módulo nunca crea cargos ni toca el folio; `chargeId`
   queda en `null`.
 

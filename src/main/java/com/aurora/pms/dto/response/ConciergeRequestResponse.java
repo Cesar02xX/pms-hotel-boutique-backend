@@ -10,8 +10,14 @@ public record ConciergeRequestResponse(
 		UUID id,
 		UUID bookingId,
 		UUID roomId,
+		/** Para que el personal vea la habitacion sin necesitar rooms.read. */
+		String roomNumber,
 		UUID guestId,
+		String guestName,
 		UUID responsibleUserId,
+		/** Para mostrar el responsable sin necesitar acceso a /admin/users. */
+		String responsibleUserName,
+		String responsibleUserEmail,
 		ServiceRequestType type,
 		String description,
 		ServiceRequestStatus status,
