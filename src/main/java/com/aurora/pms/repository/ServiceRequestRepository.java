@@ -19,11 +19,6 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
 
 	Optional<ServiceRequest> findByIdAndType(UUID id, ServiceRequestType type);
 
-	List<ServiceRequest> findByTypeAndBookingIdOrderByRequestedAtAscCreatedAtAsc(
-			ServiceRequestType type,
-			UUID bookingId
-	);
-
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select r from ServiceRequest r where r.id = :id and r.type = :type")
 	Optional<ServiceRequest> findByIdAndTypeForUpdate(@Param("id") UUID id, @Param("type") ServiceRequestType type);

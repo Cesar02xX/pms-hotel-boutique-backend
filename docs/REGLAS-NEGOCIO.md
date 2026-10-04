@@ -496,7 +496,15 @@ implementadas en Java.
   Housekeeping sobre `ServiceRequest` con `type = housekeeping`.
   - `POST /{roomId}/stayover-cleanings` crea una tarea `pending` para una
     reserva `checked_in` que pertenezca a esa habitacion.
-  - `GET /stayover-cleanings?bookingId=...` lista las tareas de una reserva.
+  - `GET /stayover-cleanings` lista las tareas stayover con filtros opcionales
+    `bookingId` y `status` (`pending`, `accepted`, `in_progress`, `completed`,
+    `rejected`, `cancelled`). Sin filtros devuelve todas, para que el rol
+    housekeeping consulte su cola sin depender de `GET /bookings` (no tiene
+    `bookings.read`). Orden: de la mas antigua a la mas reciente
+    (`requestedAt`). Un `bookingId` inexistente -> `404`; un valor invalido en
+    cualquiera de los dos filtros -> `400`. La respuesta solo trae datos de
+    limpieza (habitacion, estado, descripcion y trazabilidad), sin datos del
+    huesped.
   - `POST /stayover-cleanings/{requestId}/start`: `pending -> in_progress`.
   - `POST /stayover-cleanings/{requestId}/complete`: `in_progress -> completed`.
   - `responsibleUser` conserva al responsable inicial de la tarea.

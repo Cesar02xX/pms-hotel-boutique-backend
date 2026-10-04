@@ -6,6 +6,7 @@ import java.util.UUID;
 import com.aurora.pms.dto.response.HousekeepingRoomResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
+import com.aurora.pms.model.enums.ServiceRequestStatus;
 
 public interface HousekeepingService {
 
@@ -19,7 +20,8 @@ public interface HousekeepingService {
 
 	HousekeepingRoomResponse inspect(UUID roomId, String actorEmail);
 
-	List<StayoverCleaningResponse> findStayoverCleanings(UUID bookingId);
+	/** Filtros opcionales: un parametro null no filtra. */
+	List<StayoverCleaningResponse> findStayoverCleanings(UUID bookingId, ServiceRequestStatus status);
 
 	StayoverCleaningResponse createStayoverCleaning(UUID roomId, UUID bookingId, String description, String actorEmail);
 

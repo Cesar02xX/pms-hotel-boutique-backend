@@ -20,6 +20,7 @@ import com.aurora.pms.dto.response.ApiErrorResponse;
 import com.aurora.pms.dto.response.HousekeepingRoomResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
+import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.service.HousekeepingService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -121,11 +122,19 @@ public class HousekeepingController {
 	}
 
 	@GetMapping("/stayover-cleanings")
-	@Operation(summary = "List stayover cleanings for a booking")
+	@Operation(summary = "List stayover cleanings, optionally filtered by booking and status")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Stayover cleanings found"),
+			@ApiResponse(responseCode = "400", description = "Invalid booking id or status",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Booking not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
 	public ResponseEntity<List<StayoverCleaningResponse>> findStayoverCleanings(
-			@RequestParam UUID bookingId
+			@RequestParam(required = false) UUID bookingId,
+			@RequestParam(required = false) ServiceRequestStatus status
 	) {
-		return ResponseEntity.ok(housekeepingService.findStayoverCleanings(bookingId));
+		return ResponseEntity.ok(housekeepingService.findStayoverCleanings(bookingId, status));
 	}
 
 	@PostMapping("/{roomId}/stayover-cleanings")
