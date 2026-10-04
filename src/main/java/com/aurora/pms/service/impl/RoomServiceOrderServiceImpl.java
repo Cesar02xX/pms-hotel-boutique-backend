@@ -148,6 +148,17 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	@Override
 	@Transactional
 	public RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status, String actorEmail) {
+		return updateStatus(orderId, status, null, actorEmail);
+	}
+
+	@Override
+	@Transactional
+	public RoomServiceOrderResponse updateStatus(
+			UUID orderId,
+			OrderStatus status,
+			String notes,
+			String actorEmail
+	) {
 		// El bloqueo del pedido serializa sus cambios de estado: un mismo pedido
 		// no puede descontar ni devolver inventario dos veces en paralelo.
 		Order order = orderRepository.findByIdForUpdate(orderId)
@@ -165,6 +176,9 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		}
 
 		order.setStatus(status);
+		if (notes != null) {
+			order.setNotes(trimToNull(notes));
+		}
 		order.setUpdatedAt(OffsetDateTime.now());
 		order = orderRepository.save(order);
 		guestNotificationService.createIfAbsent(
@@ -177,6 +191,26 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		);
 
 		return roomServiceMapper.toOrderResponse(order, items);
+	}
+
+	@Override
+	@Transactional
+	public RoomServiceOrderResponse updateNotes(UUID orderId, String notes) {
+		Order order = orderRepository.findByIdForUpdate(orderId)
+				.orElseThrow(() -> new ResourceNotFoundException("Room service order not found: " + orderId));
+		// Un pedido terminal conserva sus notas (p. ej. el motivo de rechazo o cancelacion).
+		if (TERMINAL_STATUSES.contains(order.getStatus())) {
+			throw new BadRequestException("Room service order status is terminal: " + order.getStatus());
+		}
+		order.setNotes(trimToNull(notes));
+		order.setUpdatedAt(OffsetDateTime.now());
+		order = orderRepository.save(order);
+		return roomServiceMapper.toOrderResponse(order, orderItemRepository.findByOrderIdOrderById(orderId));
+	}
+
+	private static String trimToNull(String value) {
+		String trimmed = value.trim();
+		return trimmed.isEmpty() ? null : trimmed;
 	}
 
 	/**

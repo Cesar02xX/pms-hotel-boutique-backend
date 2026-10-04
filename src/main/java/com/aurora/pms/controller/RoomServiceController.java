@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
+import com.aurora.pms.dto.request.UpdateRoomServiceOrderNotesRequest;
 import com.aurora.pms.dto.request.UpdateRoomServiceOrderStatusRequest;
 import com.aurora.pms.dto.response.ApiErrorResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
@@ -125,6 +127,29 @@ public class RoomServiceController {
 			@Parameter(hidden = true) @AuthenticationPrincipal UserDetails currentUser
 	) {
 		String actorEmail = currentUser != null ? currentUser.getUsername() : null;
-		return ResponseEntity.ok(roomServiceOrderService.updateStatus(orderId, request.status(), actorEmail));
+		return ResponseEntity.ok(roomServiceOrderService.updateStatus(
+				orderId,
+				request.status(),
+				request.notes(),
+				actorEmail
+		));
+	}
+
+	@PatchMapping("/orders/{orderId}/notes")
+	@Operation(summary = "Update the notes of a room service order",
+			description = "Replaces the order notes without changing its status. Empty text clears them. "
+					+ "Terminal orders (delivered, rejected, cancelled) keep their notes.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Order notes updated"),
+			@ApiResponse(responseCode = "400", description = "Invalid request or terminal order",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Order not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<RoomServiceOrderResponse> updateNotes(
+			@PathVariable UUID orderId,
+			@Valid @RequestBody UpdateRoomServiceOrderNotesRequest request
+	) {
+		return ResponseEntity.ok(roomServiceOrderService.updateNotes(orderId, request.notes()));
 	}
 }

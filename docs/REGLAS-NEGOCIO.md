@@ -558,6 +558,10 @@ implementadas en Java.
     pasar a `delivered`.
   - `delivered`, `rejected` y `cancelled` son **terminales** (`400`).
   - Repetir el estado actual o hacer cualquier otra transición → `400`.
+  - El body acepta `notes` opcional (máx. 1000 caracteres) junto con
+    `status`, p. ej. el motivo de un rechazo o una cancelación. Si viene, se
+    guarda recortado (vacío limpia las notas); si se omite, las notas
+    actuales se conservan. Si la transición falla, las notas tampoco cambian.
   - El cambio de estado bloquea el pedido, así que dos cambios simultáneos
     sobre el mismo pedido se procesan uno detrás del otro.
   - El usuario del JWT queda como responsable de los movimientos de
@@ -602,6 +606,14 @@ implementadas en Java.
     del pedido serializa los reintentos. Además, la BD impide que un mismo
     cargo quede ligado a dos pedidos.
   - Crear o aceptar un pedido no genera cargos.
+- **Observaciones (`PATCH /{orderId}/notes`):**
+  - Body `{ "notes": "..." }` obligatorio (máx. 1000 caracteres). Reemplaza
+    las notas sin cambiar el estado; texto vacío las limpia.
+  - Un pedido terminal (`delivered`, `rejected`, `cancelled`) conserva sus
+    notas, por ejemplo el motivo del rechazo → `400`. Pedido inexistente →
+    `404`.
+  - Requiere `room-service.write` (o administración), igual que el cambio de
+    estado. Bloquea el pedido mientras actualiza.
 
 ### Catálogo administrativo (`/admin/room-service/products`)
 - Permite listar, crear y editar productos de Room Service sin alterar pedidos

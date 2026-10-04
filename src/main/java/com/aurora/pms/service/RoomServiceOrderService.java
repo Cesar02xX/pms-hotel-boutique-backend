@@ -20,4 +20,9 @@ public interface RoomServiceOrderService {
 	RoomServiceOrderResponse createOrder(CreateRoomServiceOrderRequest request);
 
 	RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status, String actorEmail);
+
+	/** {@code notes} null conserva las notas actuales; vacio las limpia. */
+	RoomServiceOrderResponse updateStatus(UUID orderId, OrderStatus status, String notes, String actorEmail);
+
+	RoomServiceOrderResponse updateNotes(UUID orderId, String notes);
 }

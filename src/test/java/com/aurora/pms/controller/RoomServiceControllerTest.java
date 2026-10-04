@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -27,6 +28,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.ResultActions;
 
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.model.Booking;
@@ -56,6 +58,7 @@ import com.aurora.pms.repository.InventoryMovementRepository;
 import com.aurora.pms.repository.OrderItemRepository;
 import com.aurora.pms.repository.OrderRepository;
 import com.aurora.pms.repository.ProductRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.RoomServiceOrderService;
 import com.jayway.jsonpath.JsonPath;
 
@@ -150,7 +153,10 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.id").exists())
 				.andExpect(jsonPath("$.bookingId").value(booking.getId().toString()))
 				.andExpect(jsonPath("$.roomId").value(booking.getRoom().getId().toString()))
+				.andExpect(jsonPath("$.roomNumber").value(
+						roomRepository.findById(booking.getRoom().getId()).orElseThrow().getRoomNumber()))
 				.andExpect(jsonPath("$.guestId").value(booking.getGuest().getId().toString()))
+				.andExpect(jsonPath("$.guestName").value(guestFullName(booking)))
 				.andExpect(jsonPath("$.status").value("pending"))
 				.andExpect(jsonPath("$.currency").value("GTQ"))
 				.andExpect(jsonPath("$.notes").value("Sin cebolla"))
@@ -789,6 +795,141 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 						.with(staffUser()))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.status").value(400));
+	}
+
+	@Test
+	void rejectingWithNotesStoresTheReason() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+		String orderId = createOrder(booking, product, 1);
+
+		updateStatus(orderId, """
+				{"status": "rejected", "notes": "  Producto no disponible  "}
+				""")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("rejected"))
+				.andExpect(jsonPath("$.notes").value("Producto no disponible"));
+	}
+
+	@Test
+	void cancellingAfterAcceptanceWithNotesStoresReasonAndRestoresStock() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		String orderId = createOrder(booking, product, 3);
+		updateStatusExpectingOk(orderId, "accepted");
+
+		updateStatus(orderId, """
+				{"status": "cancelled", "notes": "Huesped ya no lo necesita"}
+				""")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.notes").value("Huesped ya no lo necesita"));
+
+		assertThat(stockOf(product)).isEqualTo(10);
+	}
+
+	@Test
+	void statusChangeWithoutNotesKeepsCurrentNotes() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		String orderId = createOrder(booking, product, 1);
+		updateNotes(orderId, "Sin cubiertos").andExpect(status().isOk());
+
+		updateStatusExpectingOk(orderId, "accepted");
+
+		assertThat(orderRepository.findById(UUID.fromString(orderId)).orElseThrow().getNotes())
+				.isEqualTo("Sin cubiertos");
+	}
+
+	@Test
+	void updateNotesReplacesNotesWithoutChangingStatus() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createStockedProduct(1500L, 10);
+		String orderId = createOrder(booking, product, 1);
+		updateStatusExpectingOk(orderId, "accepted");
+
+		updateNotes(orderId, "  Huesped solicita entregar sin cubiertos.  ")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("accepted"))
+				.andExpect(jsonPath("$.notes").value("Huesped solicita entregar sin cubiertos."))
+				.andExpect(jsonPath("$.items.length()").value(1));
+
+		updateNotes(orderId, "   ")
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.notes").doesNotExist());
+	}
+
+	@Test
+	void updateNotesOnTerminalOrderReturnsBadRequestAndKeepsReason() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+		String orderId = createOrder(booking, product, 1);
+		updateStatus(orderId, """
+				{"status": "rejected", "notes": "Cocina cerrada"}
+				""").andExpect(status().isOk());
+
+		updateNotes(orderId, "Otra observacion")
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value(startsWith("Room service order status is terminal")));
+		assertThat(orderRepository.findById(UUID.fromString(orderId)).orElseThrow().getNotes())
+				.isEqualTo("Cocina cerrada");
+	}
+
+	@Test
+	void updateNotesValidatesRequestAndOrder() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+		String orderId = createOrder(booking, product, 1);
+
+		updateNotes(orderId, "x".repeat(1001)).andExpect(status().isBadRequest());
+		mockMvc.perform(patch("/api/v1/room-service/orders/{orderId}/notes", orderId)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest());
+		updateNotes(UUID.randomUUID().toString(), "Nota").andExpect(status().isNotFound());
+		updateStatus(orderId, """
+				{"status": "rejected", "notes": "%s"}
+				""".formatted("x".repeat(1001)))
+				.andExpect(status().isBadRequest());
+		assertThat(orderRepository.findById(UUID.fromString(orderId)).orElseThrow().getStatus())
+				.isEqualTo(OrderStatus.pending);
+	}
+
+	@Test
+	void updateNotesRequiresRoomServiceWritePermission() throws Exception {
+		Booking booking = createRoomServiceBooking();
+		Product product = createProduct(ProductCategory.food_and_beverage, true, 1500L);
+		String orderId = createOrder(booking, product, 1);
+
+		mockMvc.perform(patch("/api/v1/room-service/orders/{orderId}/notes", orderId)
+						.with(userWithPermissions("reader@aurora.test", SecurityPermissions.ROOM_SERVICE_READ))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"notes": "Nota"}
+								"""))
+				.andExpect(status().isForbidden());
+		assertThat(orderRepository.findById(UUID.fromString(orderId)).orElseThrow().getNotes()).isNull();
+	}
+
+	private ResultActions updateStatus(String orderId, String body)
+			throws Exception {
+		return mockMvc.perform(post("/api/v1/room-service/orders/{orderId}/status", orderId)
+				.with(staffUser())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content(body));
+	}
+
+	private ResultActions updateNotes(String orderId, String notes)
+			throws Exception {
+		return mockMvc.perform(patch("/api/v1/room-service/orders/{orderId}/notes", orderId)
+				.with(staffUser())
+				.contentType(MediaType.APPLICATION_JSON)
+				.content("{\"notes\": \"%s\"}".formatted(notes)));
+	}
+
+	private String guestFullName(Booking booking) {
+		Guest guest = guestRepository.findById(booking.getGuest().getId()).orElseThrow();
+		return guest.getFirstName() + " " + guest.getLastName();
 	}
 
 	private Booking createRoomServiceBooking() {
