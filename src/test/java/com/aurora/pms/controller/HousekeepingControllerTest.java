@@ -102,6 +102,7 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 		userRepository.deleteAllById(userIds);
 		roleRepository.deleteAllById(roleIds);
 		housekeepingRoomIds.clear();
+		serviceRequestIds.clear();
 		userIds.clear();
 		roleIds.clear();
 	}
@@ -219,6 +220,18 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 		mockMvc.perform(post("/api/v1/housekeeping/rooms/{roomId}/start", room.getId()).with(staffUser()))
 				.andExpect(status().isBadRequest())
 				.andExpect(jsonPath("$.message").value(startsWith("Cannot start cleaning room")));
+	}
+
+	@Test
+	void listStayoverCleaningsAllowsMissingBookingFilter() throws Exception {
+		Booking booking = createCheckedInBooking();
+		ServiceRequest stayover = createStayover(booking, "Limpieza de estancia");
+
+		mockMvc.perform(get("/api/v1/housekeeping/rooms/stayover-cleanings").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(stayover.getId().toString())))
+				.andExpect(jsonPath("$[?(@.id == '%s')].bookingId".formatted(stayover.getId()))
+						.value(hasItem(booking.getId().toString())));
 	}
 
 	@Test
@@ -375,6 +388,19 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 		room = roomRepository.save(room);
 		housekeepingRoomIds.add(room.getId());
 		return room;
+	}
+
+	private ServiceRequest createStayover(Booking booking, String description) {
+		ServiceRequest stayover = serviceRequestRepository.findById(housekeepingService
+				.createStayoverCleaning(
+						booking.getRoom().getId(),
+						booking.getId(),
+						description,
+						"catalog.tester@aurora.test"
+				)
+				.id()).orElseThrow();
+		serviceRequestIds.add(stayover.getId());
+		return stayover;
 	}
 
 	private static RoomHousekeepingStatus nextStatus(RoomHousekeepingStatus housekeepingStatus) {
