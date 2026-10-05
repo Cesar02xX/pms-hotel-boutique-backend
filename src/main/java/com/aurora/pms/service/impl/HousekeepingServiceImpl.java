@@ -263,6 +263,9 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		User actor = requireActor(actorEmail);
 		HousekeepingChecklist checklist = housekeepingChecklistRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Housekeeping checklist not found: " + id));
+		if (isTerminalChecklistStatus(checklist.getStatus())) {
+			throw new ConflictException("Cannot update checklist in terminal status: " + checklist.getStatus());
+		}
 		OffsetDateTime now = OffsetDateTime.now();
 
 		if (request.observations() != null) {
@@ -487,6 +490,10 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 					|| next == HousekeepingChecklistStatus.cancelled;
 			case completed, cancelled -> false;
 		};
+	}
+
+	private boolean isTerminalChecklistStatus(HousekeepingChecklistStatus status) {
+		return status == HousekeepingChecklistStatus.completed || status == HousekeepingChecklistStatus.cancelled;
 	}
 
 	private HousekeepingChecklistResponse toChecklistResponse(HousekeepingChecklist checklist) {

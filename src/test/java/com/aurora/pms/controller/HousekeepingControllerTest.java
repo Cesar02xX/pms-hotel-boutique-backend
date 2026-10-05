@@ -35,6 +35,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.HousekeepingChecklist;
+import com.aurora.pms.model.HousekeepingChecklistItem;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
@@ -491,6 +492,69 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void completedChecklistCannotBeUpdatedWithUncheckedItem() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID checklistId = createChecklist(requestId);
+		HousekeepingChecklist checklist = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		UUID firstItemId = checklist.getItems().get(0).getId();
+		completeChecklist(checklistId, firstItemId);
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "items": [
+								    {"id": "%s", "label": "Cambiar sabanas", "checked": false}
+								  ]
+								}
+								""".formatted(firstItemId)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+
+		HousekeepingChecklist saved = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		assertThat(saved.getStatus()).isEqualTo(HousekeepingChecklistStatus.completed);
+		assertThat(saved.getItems()).allMatch(HousekeepingChecklistItem::isChecked);
+	}
+
+	@Test
+	void updateCompletedChecklistReturnsConflict() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID checklistId = createChecklist(requestId);
+		HousekeepingChecklist checklist = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		completeChecklist(checklistId, checklist.getItems().get(0).getId());
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"observations\": \"Cambio tardio\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void updateCancelledChecklistReturnsConflict() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID checklistId = createChecklist(requestId);
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\": \"cancelled\"}"))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"observations\": \"Cambio tardio\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
 	void updateMissingChecklistReturnsNotFound() throws Exception {
 		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", UUID.randomUUID())
 						.with(housekeepingUser())
@@ -574,6 +638,21 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 		UUID id = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.id"));
 		checklistIds.add(id);
 		return id;
+	}
+
+	private void completeChecklist(UUID checklistId, UUID itemId) throws Exception {
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "status": "completed",
+								  "items": [
+								    {"id": "%s", "label": "Cambiar sabanas", "checked": true}
+								  ]
+								}
+								""".formatted(itemId)))
+				.andExpect(status().isOk());
 	}
 
 	private static RoomHousekeepingStatus nextStatus(RoomHousekeepingStatus housekeepingStatus) {
