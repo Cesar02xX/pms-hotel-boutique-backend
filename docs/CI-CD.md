@@ -51,7 +51,14 @@ El agente Jenkins necesita JDK 21, Docker, `git` y `curl`. Se recomienda un job 
 cp .env.example .env
 ```
 
-`docker compose` lee `.env` automáticamente (Postgres de la app y SonarQube). `.env` está en `.gitignore` y **nunca** se commitea.
+El mismo `.env` lo usan:
+
+- `docker compose` (Postgres de la app y SonarQube), que lo lee automáticamente;
+- la API (`mvnw spring-boot:run` o el IDE): `application.yaml` lo importa con `spring.config.import: optional:file:.env[.properties]` cuando se ejecuta desde la raíz del repo. Si no existe (CI, Docker, producción), se ignora y se usan las variables de entorno;
+- `scripts/sonarqube/setup-sonarqube.sh`, que lo carga solo;
+- el scanner de Maven, que lee `SONAR_HOST_URL` y `SONAR_TOKEN` del entorno tras `set -a; . ./.env; set +a`.
+
+`.env` está en `.gitignore` y **nunca** se commitea.
 
 ## SonarQube self-hosted
 
@@ -85,8 +92,9 @@ SONAR_ADMIN_PASSWORD='UnaClaveSegura#2026' ./scripts/sonarqube/setup-sonarqube.s
 
 - La contraseña debe tener al menos 12 caracteres, con mayúscula, minúscula, número y símbolo.
 - Si `admin/admin` ya no es válido, el script usa `SONAR_ADMIN_PASSWORD` como contraseña actual.
-- Es idempotente: se puede volver a ejecutar. Recrea las condiciones del gate y regenera el token.
-- Al final imprime `SONAR_TOKEN`, que se muestra una sola vez. Guárdalo en `.env` y en los secrets.
+- Es idempotente: se puede volver a ejecutar. Recrea las condiciones del gate y **conserva** el token existente. Para revocarlo y generar uno nuevo: `SONAR_REGENERATE_TOKEN=true ./scripts/sonarqube/setup-sonarqube.sh` (hay que actualizar `.env` y los secrets).
+- Carga `.env` automáticamente, así que con `SONAR_ADMIN_PASSWORD` definido ahí basta con `./scripts/sonarqube/setup-sonarqube.sh`.
+- La primera vez imprime `SONAR_TOKEN`, que se muestra una sola vez. Guárdalo en `.env` y en los secrets.
 
 En Windows se ejecuta desde Git Bash.
 
@@ -116,11 +124,16 @@ En Windows se ejecuta desde Git Bash.
 
 ```bash
 docker compose up -d                      # PostgreSQL requerido por los tests
+set -a; . ./.env; set +a                  # exporta SONAR_HOST_URL / SONAR_TOKEN / SONAR_PROJECT_KEY
 ./mvnw clean verify sonar:sonar \
-  -Dsonar.host.url="$SONAR_HOST_URL" \
-  -Dsonar.token="$SONAR_TOKEN" \
   -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
   -Dsonar.qualitygate.wait=true
+```
+
+En PowerShell, en lugar de `set -a; . ./.env`:
+
+```powershell
+Get-Content .env | Where-Object { $_ -match '^[A-Z_]+=' } | ForEach-Object { $k, $v = $_ -split '=', 2; Set-Item "env:$k" $v }
 ```
 
 ### Exponer SonarQube a GitHub Actions

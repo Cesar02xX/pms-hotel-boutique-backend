@@ -16,7 +16,18 @@
 #   SONAR_ADMIN_PASSWORD  nueva contraseña de admin (mín. 12 caracteres, mayúscula, minúscula, número y símbolo)
 #   SONAR_GATE_NAME       default "Aurora Backend"
 #   SONAR_TOKEN_NAME      default ci-<projectKey>
+#   SONAR_REGENERATE_TOKEN=true  revoca y vuelve a generar el token (invalida el SONAR_TOKEN actual)
+#
+# Si existe .env en la raíz del repo se carga automáticamente (las variables ya exportadas tienen prioridad).
 set -euo pipefail
+
+ENV_FILE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS='=' read -r key value; do
+    [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    [[ -n "${!key:-}" ]] || export "$key=${value%$'\r'}"
+  done < "$ENV_FILE"
+fi
 
 SONAR_HOST_URL="${SONAR_HOST_URL:-http://localhost:9000}"
 SONAR_HOST_URL="${SONAR_HOST_URL%/}"
@@ -125,7 +136,21 @@ api POST /api/qualitygates/select \
 echo "   asignado a ${SONAR_PROJECT_KEY}."
 
 echo ">> Token de análisis ${SONAR_TOKEN_NAME}"
-api POST /api/user_tokens/revoke --data-urlencode "name=${SONAR_TOKEN_NAME}" >/dev/null 2>&1 || true
+if api GET /api/user_tokens/search | grep -q "\"name\":\"${SONAR_TOKEN_NAME}\""; then
+  if [[ "${SONAR_REGENERATE_TOKEN:-false}" != "true" ]]; then
+    cat <<EOF
+   ya existe; se conserva (el SONAR_TOKEN actual sigue válido).
+   Para regenerarlo: SONAR_REGENERATE_TOKEN=true $0
+
+SonarQube listo.
+  SONAR_HOST_URL=${SONAR_HOST_URL}
+  SONAR_PROJECT_KEY=${SONAR_PROJECT_KEY}
+EOF
+    exit 0
+  fi
+  api POST /api/user_tokens/revoke --data-urlencode "name=${SONAR_TOKEN_NAME}" >/dev/null
+  echo "   token anterior revocado."
+fi
 token_json=$(api POST /api/user_tokens/generate \
   --data-urlencode "name=${SONAR_TOKEN_NAME}" \
   --data-urlencode "type=PROJECT_ANALYSIS_TOKEN" \
