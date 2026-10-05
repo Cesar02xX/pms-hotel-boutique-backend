@@ -676,13 +676,23 @@ implementadas en Java.
 
 ## 18. Administración, reportes y auditoría
 
-### Usuarios, roles y permisos (`/admin/users`, `/admin/roles`)
+### Usuarios, roles y permisos (`/admin/users`, `/admin/roles`, `/admin/permissions`)
 - Administración lista, crea y edita usuarios de personal. Las respuestas no
   exponen `passwordHash`.
 - Crear usuario requiere contraseña; se guarda cifrada con BCrypt.
 - Editar permite datos básicos, estado y rol. No cambia credenciales desde el
   endpoint general.
 - `/admin/roles` devuelve roles con sus permisos asociados.
+- `/admin/permissions` devuelve el catálogo de permisos disponible ordenado por
+  clave.
+- Crear rol normaliza `code` a mayúsculas, convierte espacios/guiones en `_` y
+  rechaza caracteres fuera de letras, números y `_`.
+- Crear o reemplazar permisos de un rol exige que todas las claves existan en
+  `permissions`; claves desconocidas responden `400`.
+- Reemplazar permisos es atómico: se eliminan las asociaciones anteriores del
+  rol y se guardan las nuevas en `role_permissions`.
+- El rol `ADMIN` es crítico: no puede desactivarse ni reemplazar su conjunto de
+  permisos desde la API administrativa.
 
 ### Promociones (`/admin/promotions`)
 - Permite listar, crear y editar promociones con código, nombre, porcentaje,
