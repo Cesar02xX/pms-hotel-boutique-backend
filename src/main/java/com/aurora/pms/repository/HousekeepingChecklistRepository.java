@@ -19,6 +19,11 @@ public interface HousekeepingChecklistRepository extends JpaRepository<Housekeep
 
 	boolean existsByServiceRequestId(UUID serviceRequestId);
 
+	boolean existsByRoomIdAndServiceRequestIsNullAndStatusIn(
+			UUID roomId,
+			List<HousekeepingChecklistStatus> statuses
+	);
+
 	@EntityGraph(attributePaths = {
 			"serviceRequest",
 			"room",

@@ -23,7 +23,7 @@ Respuesta `200 OK`:
 [
   {
     "id": "uuid",
-    "serviceRequestId": "uuid",
+    "serviceRequestId": "uuid | null",
     "roomId": "uuid",
     "roomNumber": "201",
     "status": "pending",
@@ -57,7 +57,10 @@ Respuesta `200 OK`:
 POST /api/v1/housekeeping/checklists
 ```
 
-El `serviceRequestId` debe pertenecer a una solicitud real `housekeeping` y no puede tener otro checklist asociado.
+Enviar exactamente uno de:
+
+- `serviceRequestId`: checklist asociado a una solicitud real `housekeeping` stayover. No puede tener otro checklist asociado.
+- `roomId`: checklist de turnover asociado directamente a la habitacion, sin `ServiceRequest`.
 
 ```json
 {
@@ -70,7 +73,23 @@ El `serviceRequestId` debe pertenecer a una solicitud real `housekeeping` y no p
 }
 ```
 
-Respuesta `201 Created`: mismo formato de checklist. El responsable se registra desde el usuario autenticado.
+Para turnover:
+
+```json
+{
+  "roomId": "uuid",
+  "observations": "Turnover salida 202",
+  "items": [
+    {"label": "Cambiar sabanas"},
+    {"label": "Reponer toallas", "checked": true}
+  ]
+}
+```
+
+`status` es opcional. Si se omite, se crea como `pending`; si se envia
+`completed`, todos los items deben llegar como `checked`.
+
+Respuesta `201 Created`: mismo formato de checklist. El responsable se registra desde el usuario autenticado. En turnover, `serviceRequestId` devuelve `null`.
 
 ## Actualizar checklist
 
@@ -96,6 +115,7 @@ Reglas:
 - Los items omitidos se conservan para no perder historial basico.
 - Para pasar a `completed`, todos los items existentes deben estar marcados como `checked`.
 - `completed` y `cancelled` son estados terminales.
+- Turnover no usa `ServiceRequest`; el backend bloquea mas de un checklist turnover activo (`pending` o `in_progress`) por habitacion.
 
 Errores relevantes:
 

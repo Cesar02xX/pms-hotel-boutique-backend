@@ -41,3 +41,5 @@ databaseChangeLog:
       file: db/changelog/migrations/020-real-demo-seed.sql
   - include:
       file: db/changelog/migrations/021-housekeeping-checklists.sql
+  - include:
+      file: db/changelog/migrations/022-housekeeping-turnover-checklists.sql

@@ -5,6 +5,7 @@ import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
+import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -417,6 +418,101 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void createTurnoverChecklistPersistsWithoutServiceRequest() throws Exception {
+		Room room = createRoomWithHousekeepingStatus(RoomHousekeepingStatus.cleaning);
+
+		MvcResult result = mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "roomId": "%s",
+								  "observations": "Turnover salida 202",
+								  "items": [
+								    {"label": "Cama preparada"},
+								    {"label": "Bano limpio", "checked": true}
+								  ]
+								}
+								""".formatted(room.getId())))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.serviceRequestId").value(nullValue()))
+				.andExpect(jsonPath("$.roomId").value(room.getId().toString()))
+				.andExpect(jsonPath("$.status").value("pending"))
+				.andExpect(jsonPath("$.items.length()").value(2))
+				.andReturn();
+
+		UUID checklistId = trackChecklist(result);
+		HousekeepingChecklist saved = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		assertThat(saved.getServiceRequest()).isNull();
+		assertThat(saved.getRoom().getId()).isEqualTo(room.getId());
+	}
+
+	@Test
+	void createTurnoverChecklistForSameActiveRoomReturnsConflict() throws Exception {
+		Room room = createRoomWithHousekeepingStatus(RoomHousekeepingStatus.cleaning);
+		createTurnoverChecklist(room.getId());
+
+		mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "roomId": "%s",
+								  "items": [{"label": "Revisar bano"}]
+								}
+								""".formatted(room.getId())))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void createChecklistWithRoomAndServiceRequestReturnsBadRequest() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+
+		mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "serviceRequestId": "%s",
+								  "roomId": "%s",
+								  "items": [{"label": "Revisar bano"}]
+								}
+								""".formatted(requestId, booking.getRoom().getId())))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.status").value(400));
+	}
+
+	@Test
+	void createChecklistCanCompleteWhenAllItemsAreChecked() throws Exception {
+		Room room = createRoomWithHousekeepingStatus(RoomHousekeepingStatus.cleaning);
+
+		MvcResult result = mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "roomId": "%s",
+								  "status": "completed",
+								  "items": [
+								    {"label": "Cama preparada", "checked": true},
+								    {"label": "Bano limpio", "checked": true}
+								  ]
+								}
+								""".formatted(room.getId())))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.status").value("completed"))
+				.andExpect(jsonPath("$.completedByUserEmail").value("catalog.tester@aurora.test"))
+				.andReturn();
+
+		UUID checklistId = trackChecklist(result);
+		HousekeepingChecklist saved = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		assertThat(saved.getStatus()).isEqualTo(HousekeepingChecklistStatus.completed);
+		assertThat(saved.getItems()).allMatch(HousekeepingChecklistItem::isChecked);
+	}
+
+	@Test
 	void listChecklistsFiltersByRoomStatusAndResponsible() throws Exception {
 		Booking ownBooking = createCheckedInBooking();
 		Booking otherBooking = createCheckedInBooking();
@@ -629,6 +725,21 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 								  "items": [{"label": "Cambiar sabanas"}]
 								}
 								""".formatted(serviceRequestId)))
+				.andExpect(status().isCreated())
+				.andReturn();
+		return trackChecklist(result);
+	}
+
+	private UUID createTurnoverChecklist(UUID roomId) throws Exception {
+		MvcResult result = mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "roomId": "%s",
+								  "items": [{"label": "Cambiar sabanas"}]
+								}
+								""".formatted(roomId)))
 				.andExpect(status().isCreated())
 				.andReturn();
 		return trackChecklist(result);

@@ -36,8 +36,8 @@ public class HousekeepingChecklist {
 	@GeneratedValue(strategy = GenerationType.UUID)
 	private UUID id;
 
-	@ManyToOne(fetch = FetchType.LAZY, optional = false)
-	@JoinColumn(name = "service_request_id", nullable = false)
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "service_request_id")
 	private ServiceRequest serviceRequest;
 
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)

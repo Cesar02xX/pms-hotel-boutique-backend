@@ -219,27 +219,45 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 	@Transactional
 	public HousekeepingChecklistResponse createChecklist(CreateHousekeepingChecklistRequest request, String actorEmail) {
 		User actor = requireActor(actorEmail);
-		ServiceRequest serviceRequest = serviceRequestRepository
-				.findByIdAndTypeForUpdate(request.serviceRequestId(), ServiceRequestType.housekeeping)
-				.orElseThrow(() -> new ResourceNotFoundException(
-						"Housekeeping request not found: " + request.serviceRequestId()
-				));
+		if ((request.serviceRequestId() == null) == (request.roomId() == null)) {
+			throw new BadRequestException("Provide exactly one of serviceRequestId or roomId");
+		}
 
-		if (housekeepingChecklistRepository.existsByServiceRequestId(serviceRequest.getId())) {
-			throw new ConflictException("Checklist already exists for housekeeping request: " + serviceRequest.getId());
-		}
-		if (serviceRequest.getRoom() == null) {
-			throw new ConflictException("Housekeeping request must be assigned to a room");
-		}
-		if (EnumSet.of(ServiceRequestStatus.completed, ServiceRequestStatus.cancelled, ServiceRequestStatus.rejected)
-				.contains(serviceRequest.getStatus())) {
-			throw new ConflictException("Cannot create checklist for request status: " + serviceRequest.getStatus());
+		ServiceRequest serviceRequest = null;
+		Room room;
+		if (request.serviceRequestId() != null) {
+			serviceRequest = serviceRequestRepository
+					.findByIdAndTypeForUpdate(request.serviceRequestId(), ServiceRequestType.housekeeping)
+					.orElseThrow(() -> new ResourceNotFoundException(
+							"Housekeeping request not found: " + request.serviceRequestId()
+					));
+
+			if (housekeepingChecklistRepository.existsByServiceRequestId(serviceRequest.getId())) {
+				throw new ConflictException("Checklist already exists for housekeeping request: " + serviceRequest.getId());
+			}
+			if (serviceRequest.getRoom() == null) {
+				throw new ConflictException("Housekeeping request must be assigned to a room");
+			}
+			if (EnumSet.of(ServiceRequestStatus.completed, ServiceRequestStatus.cancelled, ServiceRequestStatus.rejected)
+					.contains(serviceRequest.getStatus())) {
+				throw new ConflictException("Cannot create checklist for request status: " + serviceRequest.getStatus());
+			}
+			room = serviceRequest.getRoom();
+		} else {
+			room = roomRepository.findByIdForUpdate(request.roomId())
+					.orElseThrow(() -> new ResourceNotFoundException("Room not found: " + request.roomId()));
+			if (housekeepingChecklistRepository.existsByRoomIdAndServiceRequestIsNullAndStatusIn(
+					room.getId(),
+					List.of(HousekeepingChecklistStatus.pending, HousekeepingChecklistStatus.in_progress)
+			)) {
+				throw new ConflictException("Active turnover checklist already exists for room: " + room.getId());
+			}
 		}
 
 		OffsetDateTime now = OffsetDateTime.now();
 		HousekeepingChecklist checklist = new HousekeepingChecklist();
 		checklist.setServiceRequest(serviceRequest);
-		checklist.setRoom(serviceRequest.getRoom());
+		checklist.setRoom(room);
 		checklist.setResponsibleUser(actor);
 		checklist.setStatus(HousekeepingChecklistStatus.pending);
 		checklist.setObservations(trimToNull(request.observations()));
@@ -248,6 +266,9 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 
 		for (int index = 0; index < request.items().size(); index++) {
 			checklist.getItems().add(toNewItem(checklist, request.items().get(index), index, actor, now));
+		}
+		if (request.status() != null && request.status() != HousekeepingChecklistStatus.pending) {
+			applyChecklistStatus(checklist, request.status(), actor, now);
 		}
 
 		return toChecklistResponse(housekeepingChecklistRepository.save(checklist));
@@ -500,7 +521,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		Room room = checklist.getRoom();
 		return new HousekeepingChecklistResponse(
 				checklist.getId(),
-				checklist.getServiceRequest().getId(),
+				checklist.getServiceRequest() != null ? checklist.getServiceRequest().getId() : null,
 				room.getId(),
 				room.getRoomNumber(),
 				checklist.getStatus(),
