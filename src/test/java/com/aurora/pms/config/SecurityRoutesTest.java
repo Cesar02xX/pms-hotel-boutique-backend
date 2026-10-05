@@ -1,7 +1,9 @@
 package com.aurora.pms.config;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -203,6 +205,66 @@ class SecurityRoutesTest {
 		mockMvc.perform(post("/api/v1/auth/logout")
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("{\"refreshToken\":\"unknown-refresh-token\"}"))
+				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void publicBookingEndpointsDoNotRequireJwt() throws Exception {
+		mockMvc.perform(get("/api/v1/public/room-types"))
+				.andExpect(status().isOk());
+		mockMvc.perform(get("/api/v1/public/rates"))
+				.andExpect(status().isOk());
+		// Llegan al controller: el 400 viene de la validación, no de la seguridad.
+		mockMvc.perform(get("/api/v1/public/availability"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Check-in date is required"));
+		mockMvc.perform(post("/api/v1/public/bookings")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Validation failed"));
+	}
+
+	@Test
+	void publicBookingEndpointsIgnoreAnInvalidJwt() throws Exception {
+		mockMvc.perform(get("/api/v1/public/room-types")
+						.header("Authorization", "Bearer invalid-token"))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void onlyTheExactPublicRoutesAndMethodsAreOpen() throws Exception {
+		mockMvc.perform(get("/api/v1/public/bookings"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(put("/api/v1/public/bookings"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(post("/api/v1/public/room-types"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(delete("/api/v1/public/rates"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/public/anything-else"))
+				.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void administrativeBookingCatalogEndpointsStillRequireJwt() throws Exception {
+		mockMvc.perform(get("/api/v1/room-types"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/rates"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/rooms"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/bookings"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(post("/api/v1/bookings")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(get("/api/v1/guests"))
+				.andExpect(status().isUnauthorized());
+		mockMvc.perform(post("/api/v1/guests")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
 				.andExpect(status().isUnauthorized());
 	}
 

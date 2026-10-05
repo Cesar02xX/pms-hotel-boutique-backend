@@ -84,4 +84,19 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 			@Param("fromDate") LocalDate fromDate,
 			@Param("capacity") int capacity
 	);
+
+	@Query("""
+			select b
+			from Booking b
+			where b.roomType.id in :roomTypeIds
+			  and b.status in :statuses
+			  and b.checkIn < :checkOut
+			  and b.checkOut > :checkIn
+			""")
+	java.util.List<Booking> findActiveOverlappingByRoomTypes(
+			@Param("roomTypeIds") Collection<UUID> roomTypeIds,
+			@Param("statuses") Collection<BookingStatus> statuses,
+			@Param("checkIn") LocalDate checkIn,
+			@Param("checkOut") LocalDate checkOut
+	);
 }
