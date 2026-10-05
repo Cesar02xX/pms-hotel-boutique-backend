@@ -42,7 +42,11 @@ public class RoomServiceMapper {
 				order.getId(),
 				order.getBooking().getId(),
 				order.getRoom() != null ? order.getRoom().getId() : null,
+				order.getRoom() != null ? order.getRoom().getRoomNumber() : null,
 				order.getGuest() != null ? order.getGuest().getId() : null,
+				order.getGuest() != null
+						? order.getGuest().getFirstName() + " " + order.getGuest().getLastName()
+						: null,
 				order.getStatus(),
 				order.getNotes(),
 				order.getCurrency(),

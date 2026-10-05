@@ -391,10 +391,22 @@ implementadas en Java.
   - `responsibleUserId` es opcional en el cambio de estado. Si se envía, debe
     existir en `users`; el backend lo asocia a la solicitud para mantener la
     trazabilidad del responsable.
+  - Si no se envía `responsibleUserId` y la solicitud aún no tiene
+    responsable, al pasar a `accepted`, `in_progress` o `completed` se asigna
+    el usuario autenticado (si existe en `users`). Un responsable ya asignado
+    no se reemplaza, y rechazar o cancelar no asigna a nadie. Las acciones del
+    portal del huésped no asignan responsable.
+  - La respuesta incluye `responsibleUserName` y `responsibleUserEmail`, para
+    mostrar al responsable sin acceso a `/admin/users`, y `roomNumber` y
+    `guestName`, porque el rol `concierge` no tiene `rooms.read`.
   - El cambio de estado bloquea la solicitud, así que dos cambios simultáneos
     no pueden saltarse el flujo.
-- **Edición (`PUT /{requestId}`):** solo solicitudes `pending`. Permite cambiar
-  `description` y/o `notes`; al menos un campo debe venir en el body.
+- **Edición (`PUT /{requestId}`):** al menos un campo debe venir en el body.
+  - `notes` se puede reemplazar mientras la solicitud está `pending`,
+    `accepted` o `in_progress` (vacío las limpia).
+  - `description` solo se puede cambiar en `pending`; después → `400`.
+  - Una solicitud terminal (`completed`, `rejected`, `cancelled`) no se puede
+    editar → `400`.
 - **Sin cargos:** el módulo nunca crea cargos ni toca el folio; `chargeId`
   queda en `null`.
 
@@ -496,7 +508,15 @@ implementadas en Java.
   Housekeeping sobre `ServiceRequest` con `type = housekeeping`.
   - `POST /{roomId}/stayover-cleanings` crea una tarea `pending` para una
     reserva `checked_in` que pertenezca a esa habitacion.
-  - `GET /stayover-cleanings?bookingId=...` lista las tareas de una reserva.
+  - `GET /stayover-cleanings` lista las tareas stayover con filtros opcionales
+    `bookingId` y `status` (`pending`, `accepted`, `in_progress`, `completed`,
+    `rejected`, `cancelled`). Sin filtros devuelve todas, para que el rol
+    housekeeping consulte su cola sin depender de `GET /bookings` (no tiene
+    `bookings.read`). Orden: de la mas antigua a la mas reciente
+    (`requestedAt`). Un `bookingId` inexistente -> `404`; un valor invalido en
+    cualquiera de los dos filtros -> `400`. La respuesta solo trae datos de
+    limpieza (habitacion, estado, descripcion y trazabilidad), sin datos del
+    huesped.
   - `POST /stayover-cleanings/{requestId}/start`: `pending -> in_progress`.
   - `POST /stayover-cleanings/{requestId}/complete`: `in_progress -> completed`.
   - `responsibleUser` conserva al responsable inicial de la tarea.
@@ -550,6 +570,10 @@ implementadas en Java.
     pasar a `delivered`.
   - `delivered`, `rejected` y `cancelled` son **terminales** (`400`).
   - Repetir el estado actual o hacer cualquier otra transición → `400`.
+  - El body acepta `notes` opcional (máx. 1000 caracteres) junto con
+    `status`, p. ej. el motivo de un rechazo o una cancelación. Si viene, se
+    guarda recortado (vacío limpia las notas); si se omite, las notas
+    actuales se conservan. Si la transición falla, las notas tampoco cambian.
   - El cambio de estado bloquea el pedido, así que dos cambios simultáneos
     sobre el mismo pedido se procesan uno detrás del otro.
   - El usuario del JWT queda como responsable de los movimientos de
@@ -594,6 +618,14 @@ implementadas en Java.
     del pedido serializa los reintentos. Además, la BD impide que un mismo
     cargo quede ligado a dos pedidos.
   - Crear o aceptar un pedido no genera cargos.
+- **Observaciones (`PATCH /{orderId}/notes`):**
+  - Body `{ "notes": "..." }` obligatorio (máx. 1000 caracteres). Reemplaza
+    las notas sin cambiar el estado; texto vacío las limpia.
+  - Un pedido terminal (`delivered`, `rejected`, `cancelled`) conserva sus
+    notas, por ejemplo el motivo del rechazo → `400`. Pedido inexistente →
+    `404`.
+  - Requiere `room-service.write` (o administración), igual que el cambio de
+    estado. Bloquea el pedido mientras actualiza.
 
 ### Catálogo administrativo (`/admin/room-service/products`)
 - Permite listar, crear y editar productos de Room Service sin alterar pedidos
@@ -611,6 +643,11 @@ implementadas en Java.
   no acepta una reserva arbitraria.
 - El huésped puede cancelar usando las mismas reglas del flujo actual de Room
   Service. Un pedido ajeno responde `403`.
+- **Menú (`GET /guest/room-service/products`):** mismo catálogo que
+  `GET /room-service/products` (solo productos **activos**, ordenados por
+  nombre, filtro opcional `category`), pero con identidad de huésped: el token
+  de huésped no tiene `room-service.read`. Sin token → `401`; con token de
+  personal → `403`.
 
 ### Solicitudes del huésped
 - `/guest/housekeeping/requests` crea y consulta stayover cleanings reales
@@ -632,6 +669,10 @@ implementadas en Java.
   cancelaciones de limpieza hechas desde el portal huésped.
 - El huésped lista solo las propias, consulta contador de no leídas y marca
   como leída. El backend evita duplicados por `booking + resource + type`.
+- `POST /guest/notifications/read-all` marca como leídas, en una sola
+  transacción, todas las notificaciones no leídas de la reserva del JWT y
+  devuelve el listado actualizado. Es idempotente y nunca toca notificaciones
+  de otra reserva.
 
 ## 18. Administración, reportes y auditoría
 

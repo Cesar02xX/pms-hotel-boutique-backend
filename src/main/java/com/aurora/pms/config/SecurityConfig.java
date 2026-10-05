@@ -162,6 +162,8 @@ public class SecurityConfig {
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOM_SERVICE_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/room-service/orders/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOM_SERVICE_WRITE)
+						.requestMatchers(HttpMethod.PATCH, "/api/v1/room-service/orders/**")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.ROOM_SERVICE_WRITE)
 						.requestMatchers(HttpMethod.GET, "/api/v1/inventory/items/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.INVENTORY_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/inventory/items/*/movements")

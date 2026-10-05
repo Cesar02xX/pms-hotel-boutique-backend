@@ -6,17 +6,25 @@ import com.aurora.pms.dto.request.CreateConciergeRequestRequest;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.ServiceRequest;
+import com.aurora.pms.model.User;
 
 @Component
 public class ConciergeRequestMapper {
 
 	public ConciergeRequestResponse toResponse(ServiceRequest request) {
+		User responsible = request.getResponsibleUser();
 		return new ConciergeRequestResponse(
 				request.getId(),
 				request.getBooking().getId(),
 				request.getRoom() != null ? request.getRoom().getId() : null,
+				request.getRoom() != null ? request.getRoom().getRoomNumber() : null,
 				request.getGuest() != null ? request.getGuest().getId() : null,
-				request.getResponsibleUser() != null ? request.getResponsibleUser().getId() : null,
+				request.getGuest() != null
+						? request.getGuest().getFirstName() + " " + request.getGuest().getLastName()
+						: null,
+				responsible != null ? responsible.getId() : null,
+				responsible != null ? responsible.getFirstName() + " " + responsible.getLastName() : null,
+				responsible != null ? responsible.getEmail() : null,
 				request.getType(),
 				request.getDescription(),
 				request.getStatus(),

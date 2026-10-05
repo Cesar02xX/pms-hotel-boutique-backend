@@ -10,7 +10,10 @@ public record RoomServiceOrderResponse(
 		UUID id,
 		UUID bookingId,
 		UUID roomId,
+		/** Para que el personal sepa a donde entregar sin necesitar rooms.read. */
+		String roomNumber,
 		UUID guestId,
+		String guestName,
 		OrderStatus status,
 		String notes,
 		String currency,
