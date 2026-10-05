@@ -46,6 +46,15 @@ import com.aurora.pms.service.HousekeepingService;
 @Service
 public class HousekeepingServiceImpl implements HousekeepingService {
 
+	private static final List<String> DEFAULT_TURNOVER_CHECKLIST_ITEMS = List.of(
+			"Cama preparada",
+			"Bano limpio",
+			"Toallas completas",
+			"Amenidades repuestas",
+			"Basura retirada",
+			"Piso limpio"
+	);
+
 	private final RoomRepository roomRepository;
 	private final BookingRepository bookingRepository;
 	private final ServiceRequestRepository serviceRequestRepository;
@@ -318,6 +327,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		}
 
 		OffsetDateTime now = OffsetDateTime.now();
+		HousekeepingChecklist turnoverChecklist = synchronizeTurnoverChecklist(room, next, actor, now);
 		room.setHousekeepingStatus(next);
 		if (next == RoomHousekeepingStatus.cleaning) {
 			room.setCleaningUser(actor);
@@ -339,7 +349,88 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		}
 		room.setUpdatedAt(now);
 
+		if (turnoverChecklist != null) {
+			housekeepingChecklistRepository.save(turnoverChecklist);
+		}
 		return housekeepingRoomMapper.toResponse(roomRepository.save(room));
+	}
+
+	private HousekeepingChecklist synchronizeTurnoverChecklist(
+			Room room,
+			RoomHousekeepingStatus next,
+			User actor,
+			OffsetDateTime now
+	) {
+		if (next == RoomHousekeepingStatus.cleaning) {
+			HousekeepingChecklist checklist = getOrCreateActiveTurnoverChecklist(room, actor, now);
+			if (checklist.getStatus() == HousekeepingChecklistStatus.pending) {
+				applyChecklistStatus(checklist, HousekeepingChecklistStatus.in_progress, actor, now);
+			}
+			checklist.setUpdatedAt(now);
+			return checklist;
+		}
+		if (next == RoomHousekeepingStatus.clean) {
+			HousekeepingChecklist checklist = getActiveTurnoverChecklist(room);
+			if (checklist.getStatus() != HousekeepingChecklistStatus.completed) {
+				applyChecklistStatus(checklist, HousekeepingChecklistStatus.completed, actor, now);
+			}
+			checklist.setUpdatedAt(now);
+			return checklist;
+		}
+		if (next == RoomHousekeepingStatus.inspected) {
+			HousekeepingChecklist checklist = housekeepingChecklistRepository
+					.findTurnoverByStatusForUpdate(room.getId(), HousekeepingChecklistStatus.completed)
+					.stream()
+					.findFirst()
+					.orElseThrow(() -> new ConflictException(
+							"Cannot inspect room without completed turnover checklist: " + room.getId()
+					));
+			return checklist;
+		}
+		return null;
+	}
+
+	private HousekeepingChecklist getOrCreateActiveTurnoverChecklist(Room room, User actor, OffsetDateTime now) {
+		return housekeepingChecklistRepository
+				.findActiveTurnoverForUpdate(
+						room.getId(),
+						List.of(HousekeepingChecklistStatus.pending, HousekeepingChecklistStatus.in_progress)
+				)
+				.stream()
+				.findFirst()
+				.orElseGet(() -> createDefaultTurnoverChecklist(room, actor, now));
+	}
+
+	private HousekeepingChecklist getActiveTurnoverChecklist(Room room) {
+		return housekeepingChecklistRepository
+				.findActiveTurnoverForUpdate(
+						room.getId(),
+						List.of(HousekeepingChecklistStatus.pending, HousekeepingChecklistStatus.in_progress)
+				)
+				.stream()
+				.findFirst()
+				.orElseThrow(() -> new ConflictException(
+						"Cannot complete room without active turnover checklist: " + room.getId()
+				));
+	}
+
+	private HousekeepingChecklist createDefaultTurnoverChecklist(Room room, User actor, OffsetDateTime now) {
+		HousekeepingChecklist checklist = new HousekeepingChecklist();
+		checklist.setRoom(room);
+		checklist.setResponsibleUser(actor);
+		checklist.setStatus(HousekeepingChecklistStatus.pending);
+		checklist.setCreatedAt(now);
+		checklist.setUpdatedAt(now);
+		for (int index = 0; index < DEFAULT_TURNOVER_CHECKLIST_ITEMS.size(); index++) {
+			checklist.getItems().add(toNewItem(
+					checklist,
+					new CreateHousekeepingChecklistItemRequest(DEFAULT_TURNOVER_CHECKLIST_ITEMS.get(index), false, null),
+					index,
+					actor,
+					now
+			));
+		}
+		return checklist;
 	}
 
 	private void ensureStayoverBooking(Room room, Booking booking) {

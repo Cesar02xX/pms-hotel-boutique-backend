@@ -116,6 +116,10 @@ Reglas:
 - Para pasar a `completed`, todos los items existentes deben estar marcados como `checked`.
 - `completed` y `cancelled` son estados terminales.
 - Turnover no usa `ServiceRequest`; el backend bloquea mas de un checklist turnover activo (`pending` o `in_progress`) por habitacion.
+- El flujo de habitacion integra el checklist turnover:
+  - `POST /housekeeping/rooms/{roomId}/start` crea un checklist turnover default si no hay uno activo y lo mueve a `in_progress`.
+  - `POST /housekeeping/rooms/{roomId}/complete` exige un checklist turnover activo con todos sus items checked y lo mueve a `completed`.
+  - `POST /housekeeping/rooms/{roomId}/inspect` exige que exista un checklist turnover `completed`.
 
 Errores relevantes:
 

@@ -24,6 +24,46 @@ public interface HousekeepingChecklistRepository extends JpaRepository<Housekeep
 			List<HousekeepingChecklistStatus> statuses
 	);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@EntityGraph(attributePaths = {
+			"room",
+			"responsibleUser",
+			"completedByUser",
+			"items",
+			"items.checkedByUser"
+	})
+	@Query("""
+			select c from HousekeepingChecklist c
+			where c.room.id = :roomId
+			  and c.serviceRequest is null
+			  and c.status in :statuses
+			order by c.createdAt desc, c.updatedAt desc
+			""")
+	List<HousekeepingChecklist> findActiveTurnoverForUpdate(
+			@Param("roomId") UUID roomId,
+			@Param("statuses") List<HousekeepingChecklistStatus> statuses
+	);
+
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@EntityGraph(attributePaths = {
+			"room",
+			"responsibleUser",
+			"completedByUser",
+			"items",
+			"items.checkedByUser"
+	})
+	@Query("""
+			select c from HousekeepingChecklist c
+			where c.room.id = :roomId
+			  and c.serviceRequest is null
+			  and c.status = :status
+			order by c.completedAt desc, c.updatedAt desc
+			""")
+	List<HousekeepingChecklist> findTurnoverByStatusForUpdate(
+			@Param("roomId") UUID roomId,
+			@Param("status") HousekeepingChecklistStatus status
+	);
+
 	@EntityGraph(attributePaths = {
 			"serviceRequest",
 			"room",
