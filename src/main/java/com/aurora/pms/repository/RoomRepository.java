@@ -1,5 +1,6 @@
 package com.aurora.pms.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,6 +14,7 @@ import org.springframework.data.repository.query.Param;
 
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
+import com.aurora.pms.model.enums.RoomStatus;
 
 public interface RoomRepository extends JpaRepository<Room, UUID> {
 
@@ -23,6 +25,8 @@ public interface RoomRepository extends JpaRepository<Room, UUID> {
 	List<Room> findAllByOrderByRoomNumber();
 
 	List<Room> findByHousekeepingStatusOrderByRoomNumber(RoomHousekeepingStatus housekeepingStatus);
+
+	List<Room> findByRoomTypeIdInAndStatusNotIn(Collection<UUID> roomTypeIds, Collection<RoomStatus> statuses);
 
 	@Lock(LockModeType.PESSIMISTIC_WRITE)
 	@Query("select r from Room r where r.id = :id")

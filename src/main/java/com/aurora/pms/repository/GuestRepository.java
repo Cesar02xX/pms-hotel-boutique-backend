@@ -1,5 +1,6 @@
 package com.aurora.pms.repository;
 
+import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -16,4 +17,8 @@ public interface GuestRepository extends JpaRepository<Guest, UUID> {
 	boolean existsByDocumentTypeAndDocumentNumber(DocumentType documentType, String documentNumber);
 
 	boolean existsByDocumentTypeAndDocumentNumberAndIdNot(DocumentType documentType, String documentNumber, UUID id);
+
+	Optional<Guest> findByEmailIgnoreCase(String email);
+
+	Optional<Guest> findByDocumentTypeAndDocumentNumber(DocumentType documentType, String documentNumber);
 }

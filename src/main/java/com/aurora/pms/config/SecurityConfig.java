@@ -58,6 +58,14 @@ public class SecurityConfig {
 								"/swagger-ui.html",
 								"/v3/api-docs/**")
 						.permitAll()
+						// Web pública: solo estas rutas y métodos exactos, nunca /api/v1/public/**.
+						.requestMatchers(HttpMethod.GET,
+								"/api/v1/public/room-types",
+								"/api/v1/public/rates",
+								"/api/v1/public/availability")
+						.permitAll()
+						.requestMatchers(HttpMethod.POST, "/api/v1/public/bookings")
+						.permitAll()
 						.requestMatchers("/api/v1/guest/**")
 						.hasAuthority(GUEST_AUTHORITY)
 						.requestMatchers(HttpMethod.GET, "/api/v1/admin/amenities/**")
