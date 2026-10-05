@@ -27,13 +27,20 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.Guest;
+import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.Room;
+import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.ServiceRequest;
+import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
 import com.aurora.pms.model.enums.UserStatus;
 import com.aurora.pms.repository.RoleRepository;
+import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.HousekeepingService;
 
@@ -48,9 +55,13 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private RoleRepository roleRepository;
 
+	@Autowired
+	private ServiceRequestRepository serviceRequestRepository;
+
 	private final List<UUID> userIds = new ArrayList<>();
 	private final List<UUID> roleIds = new ArrayList<>();
 	private final List<UUID> housekeepingRoomIds = new ArrayList<>();
+	private final List<UUID> serviceRequestIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpHousekeepingActor() {
@@ -79,10 +90,12 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpHousekeepingActor() {
+		serviceRequestRepository.deleteAllById(serviceRequestIds);
 		roomRepository.deleteAllById(housekeepingRoomIds);
 		userRepository.deleteAllById(userIds);
 		roleRepository.deleteAllById(roleIds);
 		housekeepingRoomIds.clear();
+		serviceRequestIds.clear();
 		userIds.clear();
 		roleIds.clear();
 	}
@@ -203,6 +216,18 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void listStayoverCleaningsAllowsMissingBookingFilter() throws Exception {
+		Booking booking = createCheckedInBooking();
+		ServiceRequest stayover = createStayover(booking, "Limpieza de estancia");
+
+		mockMvc.perform(get("/api/v1/housekeeping/rooms/stayover-cleanings").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(stayover.getId().toString())))
+				.andExpect(jsonPath("$[?(@.id == '%s')].bookingId".formatted(stayover.getId()))
+						.value(hasItem(booking.getId().toString())));
+	}
+
+	@Test
 	void concurrentStartCleaningAllowsOnlyOneTransition() throws Exception {
 		Room room = createRoomWithHousekeepingStatus(RoomHousekeepingStatus.dirty);
 		ExecutorService executorService = Executors.newFixedThreadPool(2);
@@ -254,6 +279,29 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 		room = roomRepository.save(room);
 		housekeepingRoomIds.add(room.getId());
 		return room;
+	}
+
+	private Booking createCheckedInBooking() {
+		RoomType roomType = createRoomType();
+		Room room = createRoom(roomType);
+		Guest guest = createGuest();
+		Rate rate = createRate(roomType);
+		Booking booking = createBooking(guest, roomType, room, rate);
+		booking.setStatus(BookingStatus.checked_in);
+		return bookingRepository.save(booking);
+	}
+
+	private ServiceRequest createStayover(Booking booking, String description) {
+		ServiceRequest stayover = serviceRequestRepository.findById(housekeepingService
+				.createStayoverCleaning(
+						booking.getRoom().getId(),
+						booking.getId(),
+						description,
+						"catalog.tester@aurora.test"
+				)
+				.id()).orElseThrow();
+		serviceRequestIds.add(stayover.getId());
+		return stayover;
 	}
 
 	private static RoomHousekeepingStatus nextStatus(RoomHousekeepingStatus housekeepingStatus) {

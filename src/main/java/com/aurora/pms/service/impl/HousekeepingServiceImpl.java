@@ -108,11 +108,11 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 	@Override
 	@Transactional(readOnly = true)
 	public List<StayoverCleaningResponse> findStayoverCleanings(UUID bookingId) {
-		if (!bookingRepository.existsById(bookingId)) {
+		if (bookingId != null && !bookingRepository.existsById(bookingId)) {
 			throw new ResourceNotFoundException("Booking not found: " + bookingId);
 		}
 		return serviceRequestRepository
-				.findByTypeAndBookingIdOrderByRequestedAtAscCreatedAtAsc(ServiceRequestType.housekeeping, bookingId)
+				.search(ServiceRequestType.housekeeping, bookingId, null)
 				.stream()
 				.map(this::toStayoverResponse)
 				.toList();

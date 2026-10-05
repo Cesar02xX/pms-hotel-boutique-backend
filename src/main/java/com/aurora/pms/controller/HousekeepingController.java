@@ -123,7 +123,7 @@ public class HousekeepingController {
 	@GetMapping("/stayover-cleanings")
 	@Operation(summary = "List stayover cleanings for a booking")
 	public ResponseEntity<List<StayoverCleaningResponse>> findStayoverCleanings(
-			@RequestParam UUID bookingId
+			@RequestParam(required = false) UUID bookingId
 	) {
 		return ResponseEntity.ok(housekeepingService.findStayoverCleanings(bookingId));
 	}
