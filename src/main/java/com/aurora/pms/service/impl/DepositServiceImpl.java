@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +45,14 @@ public class DepositServiceImpl implements DepositService {
 		this.depositMapper = depositMapper;
 		this.balance = balance;
 		this.clock = clock;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<DepositResponse> findAll() {
+		return depositRepository.findAll(Sort.by("collectedAt", "createdAt")).stream()
+				.map(depositMapper::toResponse)
+				.toList();
 	}
 
 	@Override

@@ -15,6 +15,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.aurora.pms.dto.request.CancelBookingRequest;
 import com.aurora.pms.dto.request.CreateBookingRequest;
 import com.aurora.pms.dto.request.UpdateBookingRequest;
 import com.aurora.pms.dto.response.BookingResponse;
@@ -133,6 +134,33 @@ public class BookingServiceImpl implements BookingService {
 
 	@Override
 	@Transactional
+	public BookingResponse confirm(UUID id) {
+		Booking booking = getBookingForUpdate(id);
+		if (booking.getStatus() != BookingStatus.pending) {
+			throw new BadRequestException("Only pending bookings can be confirmed");
+		}
+		booking.setStatus(BookingStatus.confirmed);
+		booking.setUpdatedAt(OffsetDateTime.now(clock));
+		return bookingMapper.toResponse(bookingRepository.save(booking));
+	}
+
+	@Override
+	@Transactional
+	public BookingResponse cancel(UUID id, CancelBookingRequest request) {
+		Booking booking = getBookingForUpdate(id);
+		if (booking.getStatus() != BookingStatus.pending && booking.getStatus() != BookingStatus.confirmed) {
+			throw new BadRequestException("Only pending or confirmed bookings can be cancelled");
+		}
+		OffsetDateTime now = OffsetDateTime.now(clock);
+		booking.setStatus(BookingStatus.cancelled);
+		booking.setCancellationReason(request.reason().trim());
+		booking.setCancelledAt(now);
+		booking.setUpdatedAt(now);
+		return bookingMapper.toResponse(bookingRepository.save(booking));
+	}
+
+	@Override
+	@Transactional
 	public CheckInResponse checkIn(UUID id) {
 		Booking booking = getBookingForCheckIn(id);
 		validateCheckInStatus(booking);
@@ -224,6 +252,11 @@ public class BookingServiceImpl implements BookingService {
 	}
 
 	private Booking getBookingForCheckIn(UUID id) {
+		return bookingRepository.findByIdForUpdate(id)
+				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + id));
+	}
+
+	private Booking getBookingForUpdate(UUID id) {
 		return bookingRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + id));
 	}

@@ -9,6 +9,8 @@ import com.aurora.pms.dto.response.DepositResponse;
 
 public interface DepositService {
 
+	List<DepositResponse> findAll();
+
 	List<DepositResponse> findAllByBookingId(UUID bookingId);
 
 	DepositResponse create(UUID bookingId, CreateDepositRequest request);

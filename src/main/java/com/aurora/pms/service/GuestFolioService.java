@@ -10,11 +10,15 @@ import com.aurora.pms.dto.response.GuestFolioResponse;
 
 public interface GuestFolioService {
 
+	List<GuestFolioResponse> findAllFolios();
+
 	GuestFolioResponse getFolio(UUID bookingId);
 
 	OpenFolioResult openFolio(UUID bookingId);
 
 	List<ChargeResponse> findCharges(UUID bookingId);
+
+	List<ChargeResponse> findAllCharges();
 
 	ChargeResponse createCharge(UUID bookingId, CreateChargeRequest request, String actorEmail);
 

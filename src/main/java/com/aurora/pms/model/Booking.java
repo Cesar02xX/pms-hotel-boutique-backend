@@ -83,6 +83,12 @@ public class Booking {
 	@Column(columnDefinition = "text")
 	private String notes;
 
+	@Column(name = "cancellation_reason", columnDefinition = "text")
+	private String cancellationReason;
+
+	@Column(name = "cancelled_at")
+	private OffsetDateTime cancelledAt;
+
 	@Column(name = "created_at", nullable = false)
 	private OffsetDateTime createdAt;
 

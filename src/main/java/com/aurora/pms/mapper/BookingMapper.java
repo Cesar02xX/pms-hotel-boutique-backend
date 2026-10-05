@@ -32,6 +32,8 @@ public class BookingMapper {
 				booking.getTotalAmountCents(),
 				booking.getCurrency(),
 				booking.getNotes(),
+				booking.getCancellationReason(),
+				booking.getCancelledAt(),
 				booking.getCreatedAt(),
 				booking.getUpdatedAt()
 		);

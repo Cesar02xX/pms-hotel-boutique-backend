@@ -8,6 +8,8 @@ import com.aurora.pms.dto.response.PaymentResponse;
 
 public interface PaymentService {
 
+	List<PaymentResponse> findAll();
+
 	List<PaymentResponse> findAllByBookingId(UUID bookingId);
 
 	PaymentResponse create(UUID bookingId, CreatePaymentRequest request, String actorEmail);

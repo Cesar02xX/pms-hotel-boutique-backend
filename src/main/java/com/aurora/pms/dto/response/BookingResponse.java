@@ -22,6 +22,8 @@ public record BookingResponse(
 		Long totalAmountCents,
 		String currency,
 		String notes,
+		String cancellationReason,
+		OffsetDateTime cancelledAt,
 		OffsetDateTime createdAt,
 		OffsetDateTime updatedAt
 ) {

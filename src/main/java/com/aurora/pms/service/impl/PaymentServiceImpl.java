@@ -5,6 +5,7 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -62,6 +63,14 @@ public class PaymentServiceImpl implements PaymentService {
 		this.paymentMapper = paymentMapper;
 		this.balance = balance;
 		this.clock = clock;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<PaymentResponse> findAll() {
+		return paymentRepository.findAll(Sort.by("createdAt")).stream()
+				.map(paymentMapper::toResponse)
+				.toList();
 	}
 
 	@Override

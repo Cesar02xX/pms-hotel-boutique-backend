@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.aurora.pms.dto.request.CancelBookingRequest;
 import com.aurora.pms.dto.request.CheckInRequest;
 import com.aurora.pms.dto.request.CreateBookingRequest;
 import com.aurora.pms.dto.request.UpdateBookingRequest;
@@ -88,6 +89,33 @@ public class BookingController {
 	public ResponseEntity<BookingResponse> update(@PathVariable UUID id,
 			@Valid @RequestBody UpdateBookingRequest request) {
 		return ResponseEntity.ok(bookingService.update(id, request));
+	}
+
+	@PostMapping("/{id}/confirm")
+	@Operation(summary = "Confirm a pending booking")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Booking confirmed"),
+			@ApiResponse(responseCode = "400", description = "Booking cannot be confirmed",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Booking not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<BookingResponse> confirm(@PathVariable UUID id) {
+		return ResponseEntity.ok(bookingService.confirm(id));
+	}
+
+	@PostMapping("/{id}/cancel")
+	@Operation(summary = "Cancel a pending or confirmed booking")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "Booking cancelled"),
+			@ApiResponse(responseCode = "400", description = "Booking cannot be cancelled",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
+			@ApiResponse(responseCode = "404", description = "Booking not found",
+					content = @Content(schema = @Schema(implementation = ApiErrorResponse.class)))
+	})
+	public ResponseEntity<BookingResponse> cancel(@PathVariable UUID id,
+			@Valid @RequestBody CancelBookingRequest request) {
+		return ResponseEntity.ok(bookingService.cancel(id, request));
 	}
 
 	@PostMapping("/{id}/check-in")

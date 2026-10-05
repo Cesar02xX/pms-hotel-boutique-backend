@@ -37,6 +37,8 @@ public final class SecurityPermissions {
 	public static final String CASH_WRITE = "cash.write";
 	public static final String CONCIERGE_READ = "concierge.read";
 	public static final String CONCIERGE_WRITE = "concierge.write";
+	public static final String SERVICE_REQUESTS_READ = "service-requests.read";
+	public static final String SERVICE_REQUESTS_WRITE = "service-requests.write";
 
 	public static final List<String> ALL = List.of(
 			ROOMS_READ,
@@ -71,7 +73,9 @@ public final class SecurityPermissions {
 			CASH_READ,
 			CASH_WRITE,
 			CONCIERGE_READ,
-			CONCIERGE_WRITE
+			CONCIERGE_WRITE,
+			SERVICE_REQUESTS_READ,
+			SERVICE_REQUESTS_WRITE
 	);
 
 	private SecurityPermissions() {

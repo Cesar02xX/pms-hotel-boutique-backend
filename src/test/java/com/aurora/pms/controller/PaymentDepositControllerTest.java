@@ -1,6 +1,7 @@
 package com.aurora.pms.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
@@ -213,6 +214,28 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$", hasSize(2)))
 				.andExpect(jsonPath("$[0].id").value(first))
 				.andExpect(jsonPath("$[1].id").value(second));
+	}
+
+	@Test
+	void globalFinanceListsReturnPersistedAccountsChargesPaymentsAndDeposits() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 8000L);
+		String paymentId = createPayment(booking, 3000L);
+		String depositId = createDeposit(booking, 2000L);
+
+		mockMvc.perform(get("/api/v1/guest-accounts").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].bookingId", hasItem(booking.getId().toString())));
+		mockMvc.perform(get("/api/v1/charges").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].bookingId", hasItem(booking.getId().toString())));
+		mockMvc.perform(get("/api/v1/payments").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(paymentId)));
+		mockMvc.perform(get("/api/v1/deposits").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(depositId)));
 	}
 
 	@Test
