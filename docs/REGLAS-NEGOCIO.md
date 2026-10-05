@@ -7,7 +7,7 @@ documento.
 
 Todas las rutas cuelgan de `/api/v1`.
 
-Al final, la sección **17. Decisiones acordadas pendientes de implementación**
+Al final, la sección **20. Decisiones acordadas pendientes de implementación**
 lista las reglas ya decididas por el equipo que todavía no deben asumirse como
 implementadas en Java.
 
@@ -16,8 +16,12 @@ implementadas en Java.
 ## 0. Reglas generales (aplican a toda la API)
 
 - **Seguridad:** todos los endpoints requieren JWT (`Authorization: Bearer <token>`),
-  excepto `/health`, `/auth/login`, `/auth/refresh`, `/auth/logout` y Swagger.
-  Sin token o con token inválido → `401`.
+  excepto `/health`, `/auth/login`, `/auth/refresh`, `/auth/logout`, Swagger y
+  los cuatro contratos de la web pública (`GET /public/room-types`,
+  `GET /public/rates`, `GET /public/availability` y `POST /public/bookings`,
+  ver sección 19). Solo se abren esas rutas con ese método exacto; cualquier
+  otra ruta o método bajo `/public` sigue exigiendo JWT. Sin token o con token
+  inválido → `401`.
 - **Formato de error único:** todos los errores usan `ApiErrorResponse` a través de
   `GlobalExceptionHandler`.
 - **Códigos HTTP:**
@@ -547,7 +551,7 @@ implementadas en Java.
     **`404`**; si existe en cualquier otro estado → `400`.
   - Los productos deben existir y estar activos. Si no → **`404`**.
   - El `404` de `bookingId`/`productId` es distinto de la convención del
-    resto de la API (ver sección 0 y pendientes en la sección 17).
+    resto de la API (ver sección 0 y pendientes en la sección 20).
   - **Productos repetidos:** si el mismo `productId` aparece varias veces se
     consolida en una sola línea sumando las cantidades. Si la suma desborda
     un entero → `400`.
@@ -708,7 +712,91 @@ implementadas en Java.
 - `/admin/audit-logs` expone auditoría de solo lectura filtrada por rango de
   fecha/hora. No existe endpoint normal para editar o borrar auditoría.
 
-## 19. Decisiones acordadas pendientes de implementación
+## 19. Web pública sin sesión (`/public`)
+
+Contratos para buscar y reservar desde la web pública sin JWT de personal. Sus
+DTOs son propios y solo traen lo que la web muestra: no exponen banderas
+`active`, `createdAt`/`updatedAt` del catálogo, habitaciones, el `id` interno
+de la reserva, el `guestId` ni el `guestLinkCode`.
+
+### Catálogo
+- `GET /public/room-types`: solo tipos `active = true`, ordenados por nombre,
+  con sus características (`id`, `name`, `description`).
+- `GET /public/rates`: solo tarifas `active = true` de tipos activos y que no
+  hayan vencido (`validTo` vacía o `>= hoy`). Filtro opcional `roomTypeId`; un
+  tipo inexistente o inactivo devuelve lista vacía.
+- "Hoy" se calcula en la zona horaria del hotel (`America/Guatemala`).
+
+### Disponibilidad (`GET /public/availability`)
+- Parámetros: `checkIn`, `checkOut` y `adults` obligatorios; `children`
+  opcional (0 por defecto); `roomTypeId` opcional para consultar un solo tipo.
+- **Fechas:** `checkIn` anterior a `checkOut`, `checkIn >= hoy` y como máximo
+  **30 noches**. Un parámetro faltante o inválido → `400`.
+- `roomTypeId` inexistente o inactivo → `400`.
+- Solo se ofrecen tipos **activos** con **capacidad** para `adults + children`.
+- **Tarifa obligatoria:** el tipo debe tener una tarifa activa que cubra todas
+  las noches de la estadía y cuyo `minimumNights` se cumpla. Como las tarifas de
+  un tipo no se solapan, hay como máximo una; el backend la elige.
+- **Cálculo:** `availableRooms = habitaciones operables del tipo − máximo de
+  reservas activas del tipo que ocupan una misma noche`, con mínimo 0.
+  - Operables: cualquier estado salvo `maintenance` y `out_of_service`. Una
+    habitación `occupied` hoy sí cuenta, porque la ocupación por fechas sale de
+    las reservas. El estado de limpieza no influye (solo importa al check-in).
+  - Bloquean las reservas `pending`, `confirmed` y `checked_in` del tipo que se
+    cruzan con la estadía, **tengan o no habitación asignada**. `cancelled`,
+    `checked_out` y `no_show` no bloquean.
+  - Se cuenta noche por noche: dos reservas que no se cruzan entre sí ocupan una
+    sola habitación. El día de salida de una reserva puede ser el de entrada de
+    otra.
+- La respuesta solo trae los tipos con `availableRooms > 0`, con su tarifa y el
+  total (`priceCents × noches`). Sin resultados → `200` con lista vacía.
+
+### Reserva (`POST /public/bookings`)
+- El body trae `roomTypeId`, fechas, `adults`, `children`, `notes` opcional y
+  los datos del huésped. **El email del huésped es obligatorio** en la reserva
+  pública (en `/guests` del personal es opcional).
+- El backend elige la tarifa, no asigna habitación (se asigna en recepción) y
+  calcula el total. `rateId`, `roomId`, `status` o importes enviados por el
+  cliente se ignoran.
+- Valida las mismas fechas (incluido `checkIn >= hoy` y el máximo de 30 noches),
+  tipo activo, capacidad y tarifa obligatoria que la disponibilidad → `400`.
+- **Sin disponibilidad para el tipo y las fechas → `409`.**
+- **Estado inicial `pending`:** reutiliza la creación de reservas de la sección
+  7, que asigna `pending`, `GTQ` y los códigos.
+- **Huésped:**
+  - Si el email y el documento (`documentType + documentNumber`) coinciden con
+    el **mismo** huésped existente, se reutiliza ese huésped **sin modificar sus
+    datos**.
+  - Si solo coincide uno de los dos, o coinciden con huéspedes distintos (por
+    ejemplo, el email existe y no se envió documento) → `409` con un mensaje
+    genérico que no indica qué dato ya existe.
+  - Si no coincide ninguno, se crea con las reglas de la sección 6. Se mantienen
+    las restricciones de unicidad.
+- **Atomicidad:** huésped y reserva se crean en una sola transacción; si la
+  reserva falla, no queda un huésped creado.
+- **Concurrencia:** se bloquea la fila del tipo de habitación mientras se
+  comprueba la disponibilidad y se crea la reserva, así que dos reservas
+  públicas simultáneas del mismo tipo no pueden venderse la última habitación.
+- La disponibilidad por tipo solo se valida en este flujo. `POST /bookings`
+  del personal conserva su comportamiento actual (sección 7).
+- La respuesta incluye `confirmationCode`, estado, tipo, fechas, noches,
+  ocupantes, tarifa, total y moneda. El nombre y el email del huésped repiten
+  **lo enviado en la petición**, nunca lo guardado: reutilizar un huésped no
+  expone sus datos almacenados.
+- `adults + children` se compara con la capacidad sin desbordamiento: valores
+  enteros enormes no pueden pasar la validación.
+
+### Riesgos conocidos
+- **Abuso del POST anónimo:** no hay CAPTCHA ni límite de peticiones. Como las
+  reservas `pending` bloquean disponibilidad y no vencen, alguien podría crear
+  reservas falsas y agotar el inventario público. Aceptado para el ticket #62;
+  debe tratarse en un issue aparte.
+- **Reservas `pending` sin confirmación:** la API no tiene una operación para
+  pasar una reserva de `pending` a `confirmed` (`PUT /bookings/{id}` rechaza
+  cambios de `status`) y el check-in exige `confirmed`. Afecta a toda reserva,
+  incluidas las públicas; queda pendiente de un issue aparte.
+
+## 20. Decisiones acordadas pendientes de implementación
 
 Esta sección documenta decisiones ya tomadas por el equipo que **todavía no
 deben leerse como comportamiento implementado**. Cuando una decisión contradice

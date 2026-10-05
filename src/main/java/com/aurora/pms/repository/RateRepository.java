@@ -1,6 +1,8 @@
 package com.aurora.pms.repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -10,6 +12,31 @@ import org.springframework.data.repository.query.Param;
 import com.aurora.pms.model.Rate;
 
 public interface RateRepository extends JpaRepository<Rate, UUID> {
+
+	@Query("""
+			select r
+			from Rate r
+			where r.active = true
+			  and r.roomType.active = true
+			  and (r.validTo is null or r.validTo >= :today)
+			order by r.validFrom, r.name
+			""")
+	List<Rate> findActiveCurrentForActiveRoomTypes(@Param("today") LocalDate today);
+
+	@Query("""
+			select r
+			from Rate r
+			where r.active = true
+			  and r.roomType.id in :roomTypeIds
+			  and r.validFrom <= :checkIn
+			  and (r.validTo is null or r.validTo >= :lastNight)
+			order by r.validFrom desc
+			""")
+	List<Rate> findActiveCoveringStay(
+			@Param("roomTypeIds") Collection<UUID> roomTypeIds,
+			@Param("checkIn") LocalDate checkIn,
+			@Param("lastNight") LocalDate lastNight
+	);
 
 	@Query("""
 			select count(r) > 0
