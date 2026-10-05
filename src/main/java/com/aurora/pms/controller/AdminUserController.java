@@ -13,8 +13,12 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.aurora.pms.dto.request.CreateRoleRequest;
 import com.aurora.pms.dto.request.CreateUserRequest;
+import com.aurora.pms.dto.request.UpdateRolePermissionsRequest;
+import com.aurora.pms.dto.request.UpdateRoleRequest;
 import com.aurora.pms.dto.request.UpdateUserRequest;
+import com.aurora.pms.dto.response.PermissionResponse;
 import com.aurora.pms.dto.response.RoleResponse;
 import com.aurora.pms.dto.response.UserAdminResponse;
 import com.aurora.pms.service.AdminUserService;
@@ -57,5 +61,31 @@ public class AdminUserController {
 	@GetMapping("/roles")
 	public ResponseEntity<List<RoleResponse>> findRoles() {
 		return ResponseEntity.ok(adminUserService.findRoles());
+	}
+
+	@GetMapping("/permissions")
+	public ResponseEntity<List<PermissionResponse>> findPermissions() {
+		return ResponseEntity.ok(adminUserService.findPermissions());
+	}
+
+	@PostMapping("/roles")
+	public ResponseEntity<RoleResponse> createRole(@Valid @RequestBody CreateRoleRequest request) {
+		return ResponseEntity.status(HttpStatus.CREATED).body(adminUserService.createRole(request));
+	}
+
+	@PutMapping("/roles/{id}")
+	public ResponseEntity<RoleResponse> updateRole(
+			@PathVariable UUID id,
+			@Valid @RequestBody UpdateRoleRequest request
+	) {
+		return ResponseEntity.ok(adminUserService.updateRole(id, request));
+	}
+
+	@PutMapping("/roles/{id}/permissions")
+	public ResponseEntity<RoleResponse> updateRolePermissions(
+			@PathVariable UUID id,
+			@Valid @RequestBody UpdateRolePermissionsRequest request
+	) {
+		return ResponseEntity.ok(adminUserService.updateRolePermissions(id, request));
 	}
 }

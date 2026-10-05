@@ -2,22 +2,37 @@ package com.aurora.pms.service.impl;
 
 import java.time.OffsetDateTime;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.aurora.pms.dto.request.CreateRoleRequest;
 import com.aurora.pms.dto.request.CreateUserRequest;
+import com.aurora.pms.dto.request.UpdateRolePermissionsRequest;
+import com.aurora.pms.dto.request.UpdateRoleRequest;
 import com.aurora.pms.dto.request.UpdateUserRequest;
+import com.aurora.pms.dto.response.PermissionResponse;
 import com.aurora.pms.dto.response.RoleResponse;
 import com.aurora.pms.dto.response.UserAdminResponse;
+import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
+import com.aurora.pms.model.Permission;
 import com.aurora.pms.model.Role;
+import com.aurora.pms.model.RolePermission;
+import com.aurora.pms.model.RolePermissionId;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.UserStatus;
+import com.aurora.pms.repository.PermissionRepository;
 import com.aurora.pms.repository.RolePermissionRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
@@ -28,17 +43,20 @@ public class AdminUserServiceImpl implements AdminUserService {
 
 	private final UserRepository userRepository;
 	private final RoleRepository roleRepository;
+	private final PermissionRepository permissionRepository;
 	private final RolePermissionRepository rolePermissionRepository;
 	private final PasswordEncoder passwordEncoder;
 
 	public AdminUserServiceImpl(
 			UserRepository userRepository,
 			RoleRepository roleRepository,
+			PermissionRepository permissionRepository,
 			RolePermissionRepository rolePermissionRepository,
 			PasswordEncoder passwordEncoder
 	) {
 		this.userRepository = userRepository;
 		this.roleRepository = roleRepository;
+		this.permissionRepository = permissionRepository;
 		this.rolePermissionRepository = rolePermissionRepository;
 		this.passwordEncoder = passwordEncoder;
 	}
@@ -109,17 +127,65 @@ public class AdminUserServiceImpl implements AdminUserService {
 	public List<RoleResponse> findRoles() {
 		return roleRepository.findAll().stream()
 				.sorted(Comparator.comparing(Role::getCode))
-				.map(role -> new RoleResponse(
-						role.getId(),
-						role.getCode(),
-						role.getName(),
-						role.getActive(),
-						rolePermissionRepository.findByRoleIdWithPermission(role.getId()).stream()
-								.map(rolePermission -> rolePermission.getPermission().getKey())
-								.sorted()
-								.toList()
+				.map(this::toRoleResponse)
+				.toList();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<PermissionResponse> findPermissions() {
+		return permissionRepository.findAllByOrderByKey().stream()
+				.map(permission -> new PermissionResponse(
+						permission.getId(),
+						permission.getKey(),
+						permission.getName(),
+						permission.getDescription()
 				))
 				.toList();
+	}
+
+	@Override
+	@Transactional
+	public RoleResponse createRole(CreateRoleRequest request) {
+		String code = normalizeCode(request.code());
+		if (roleRepository.existsByCodeIgnoreCase(code)) {
+			throw new ConflictException("Role code already exists: " + code);
+		}
+		OffsetDateTime now = OffsetDateTime.now();
+		Role role = new Role();
+		role.setCode(code);
+		role.setName(request.name().trim());
+		role.setActive(request.active() == null || request.active());
+		role.setCreatedAt(now);
+		role.setUpdatedAt(now);
+		role = roleRepository.save(role);
+		replacePermissions(role, request.permissions());
+		return toRoleResponse(role);
+	}
+
+	@Override
+	@Transactional
+	public RoleResponse updateRole(UUID id, UpdateRoleRequest request) {
+		Role role = getRole(id);
+		if (request.name() != null && !request.name().trim().isEmpty()) {
+			role.setName(request.name().trim());
+		}
+		if (request.active() != null) {
+			ensureCanChangeActive(role, request.active());
+			role.setActive(request.active());
+		}
+		role.setUpdatedAt(OffsetDateTime.now());
+		return toRoleResponse(roleRepository.save(role));
+	}
+
+	@Override
+	@Transactional
+	public RoleResponse updateRolePermissions(UUID id, UpdateRolePermissionsRequest request) {
+		Role role = getRole(id);
+		ensureCanChangePermissions(role);
+		replacePermissions(role, request.permissions());
+		role.setUpdatedAt(OffsetDateTime.now());
+		return toRoleResponse(roleRepository.save(role));
 	}
 
 	private User getUser(UUID id) {
@@ -130,6 +196,77 @@ public class AdminUserServiceImpl implements AdminUserService {
 	private Role getRole(UUID id) {
 		return roleRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Role not found: " + id));
+	}
+
+	private RoleResponse toRoleResponse(Role role) {
+		return new RoleResponse(
+				role.getId(),
+				role.getCode(),
+				role.getName(),
+				role.getActive(),
+				rolePermissionRepository.findByRoleIdWithPermission(role.getId()).stream()
+						.map(rolePermission -> rolePermission.getPermission().getKey())
+						.sorted()
+						.toList()
+		);
+	}
+
+	private void replacePermissions(Role role, List<String> permissionKeys) {
+		List<String> normalizedKeys = normalizePermissionKeys(permissionKeys);
+		Map<String, Permission> permissionsByKey = permissionRepository.findByKeyIn(normalizedKeys).stream()
+				.collect(Collectors.toMap(Permission::getKey, Function.identity()));
+		List<String> missing = normalizedKeys.stream()
+				.filter(key -> !permissionsByKey.containsKey(key))
+				.toList();
+		if (!missing.isEmpty()) {
+			throw new BadRequestException("Unknown permissions: " + String.join(", ", missing));
+		}
+		rolePermissionRepository.deleteByIdRoleId(role.getId());
+		List<RolePermission> rolePermissions = normalizedKeys.stream()
+				.map(key -> toRolePermission(role, permissionsByKey.get(key)))
+				.toList();
+		rolePermissionRepository.saveAll(rolePermissions);
+	}
+
+	private static RolePermission toRolePermission(Role role, Permission permission) {
+		RolePermissionId id = new RolePermissionId();
+		id.setRoleId(role.getId());
+		id.setPermissionId(permission.getId());
+		RolePermission rolePermission = new RolePermission();
+		rolePermission.setId(id);
+		rolePermission.setRole(role);
+		rolePermission.setPermission(permission);
+		return rolePermission;
+	}
+
+	private static List<String> normalizePermissionKeys(List<String> permissionKeys) {
+		Set<String> seen = new HashSet<>();
+		return permissionKeys.stream()
+				.map(String::trim)
+				.filter(key -> !key.isEmpty())
+				.filter(seen::add)
+				.sorted()
+				.toList();
+	}
+
+	private static String normalizeCode(String code) {
+		String normalized = code.trim().replace('-', '_').replace(' ', '_').toUpperCase(Locale.ROOT);
+		if (!normalized.matches("[A-Z0-9_]+")) {
+			throw new BadRequestException("Role code can only contain letters, numbers, spaces, hyphens or underscores");
+		}
+		return normalized;
+	}
+
+	private static void ensureCanChangeActive(Role role, boolean nextActive) {
+		if ("admin".equalsIgnoreCase(role.getCode()) && !nextActive) {
+			throw new BadRequestException("ADMIN role cannot be deactivated");
+		}
+	}
+
+	private static void ensureCanChangePermissions(Role role) {
+		if ("admin".equalsIgnoreCase(role.getCode())) {
+			throw new BadRequestException("ADMIN role permissions cannot be replaced");
+		}
 	}
 
 	private UserAdminResponse toUserResponse(User user) {
