@@ -8,6 +8,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -27,30 +28,37 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.test.web.servlet.MvcResult;
 
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.HousekeepingChecklist;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.HousekeepingChecklistStatus;
 import com.aurora.pms.model.enums.RoomHousekeepingStatus;
 import com.aurora.pms.model.enums.RoomStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.model.enums.UserStatus;
+import com.aurora.pms.repository.HousekeepingChecklistRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.HousekeepingService;
+import com.jayway.jsonpath.JsonPath;
 
 class HousekeepingControllerTest extends AbstractCatalogApiTest {
 
 	private static final String STAYOVER_PATH = "/api/v1/housekeeping/rooms/stayover-cleanings";
+	private static final String CHECKLIST_PATH = "/api/v1/housekeeping/checklists";
 
 	@Autowired
 	private HousekeepingService housekeepingService;
@@ -64,10 +72,14 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private ServiceRequestRepository serviceRequestRepository;
 
+	@Autowired
+	private HousekeepingChecklistRepository housekeepingChecklistRepository;
+
 	private final List<UUID> userIds = new ArrayList<>();
 	private final List<UUID> roleIds = new ArrayList<>();
 	private final List<UUID> housekeepingRoomIds = new ArrayList<>();
 	private final List<UUID> serviceRequestIds = new ArrayList<>();
+	private final List<UUID> checklistIds = new ArrayList<>();
 
 	@BeforeEach
 	void setUpHousekeepingActor() {
@@ -96,6 +108,8 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 
 	@AfterEach
 	void cleanUpHousekeepingActor() {
+		housekeepingChecklistRepository.deleteAllById(checklistIds);
+		checklistIds.clear();
 		serviceRequestRepository.deleteAllById(serviceRequestIds);
 		serviceRequestIds.clear();
 		roomRepository.deleteAllById(housekeepingRoomIds);
@@ -348,6 +362,144 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.status").value(400));
 	}
 
+	@Test
+	void createChecklistPersistsItemsAndResponsibleUser() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+
+		MvcResult result = mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "serviceRequestId": "%s",
+								  "observations": "Primera pasada",
+								  "items": [
+								    {"label": "Cambiar sabanas", "checked": true, "notes": "Listo"},
+								    {"label": "Reponer toallas"}
+								  ]
+								}
+								""".formatted(requestId)))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.serviceRequestId").value(requestId.toString()))
+				.andExpect(jsonPath("$.roomId").value(booking.getRoom().getId().toString()))
+				.andExpect(jsonPath("$.status").value("pending"))
+				.andExpect(jsonPath("$.responsibleUserEmail").value("catalog.tester@aurora.test"))
+				.andExpect(jsonPath("$.items.length()").value(2))
+				.andExpect(jsonPath("$.items[0].checked").value(true))
+				.andExpect(jsonPath("$.items[0].checkedByUserEmail").value("catalog.tester@aurora.test"))
+				.andReturn();
+
+		UUID checklistId = trackChecklist(result);
+		HousekeepingChecklist saved = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		assertThat(saved.getItems()).hasSize(2);
+		assertThat(saved.getResponsibleUser().getEmail()).isEqualTo("catalog.tester@aurora.test");
+	}
+
+	@Test
+	void createChecklistForSameCleaningTaskReturnsConflict() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		createChecklist(requestId);
+
+		mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "serviceRequestId": "%s",
+								  "items": [{"label": "Revisar minibar"}]
+								}
+								""".formatted(requestId)))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void listChecklistsFiltersByRoomStatusAndResponsible() throws Exception {
+		Booking ownBooking = createCheckedInBooking();
+		Booking otherBooking = createCheckedInBooking();
+		UUID ownRequest = createServiceRequest(ownBooking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID otherRequest = createServiceRequest(otherBooking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID ownChecklist = createChecklist(ownRequest);
+		UUID otherChecklist = createChecklist(otherRequest);
+		UUID responsibleId = userRepository.findByEmail("catalog.tester@aurora.test").orElseThrow().getId();
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", ownChecklist)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "in_progress", "items": [{"label": "Cambiar sabanas", "checked": true}]}
+								"""))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(get(CHECKLIST_PATH)
+						.param("roomId", ownBooking.getRoom().getId().toString())
+						.param("status", HousekeepingChecklistStatus.in_progress.name())
+						.param("responsibleUserId", responsibleId.toString())
+						.with(housekeepingUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(ownChecklist.toString())))
+				.andExpect(jsonPath("$[*].id", not(hasItem(otherChecklist.toString()))));
+	}
+
+	@Test
+	void updateChecklistCanCompleteCheckedItemsWithoutDroppingHistory() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID checklistId = createChecklist(requestId);
+		HousekeepingChecklist checklist = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		UUID firstItemId = checklist.getItems().get(0).getId();
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "status": "completed",
+								  "observations": "Habitacion lista",
+								  "items": [
+								    {"id": "%s", "label": "Cambiar sabanas", "checked": true, "notes": "OK"},
+								    {"label": "Desinfectar bano", "checked": true}
+								  ]
+								}
+								""".formatted(firstItemId)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("completed"))
+				.andExpect(jsonPath("$.observations").value("Habitacion lista"))
+				.andExpect(jsonPath("$.completedByUserEmail").value("catalog.tester@aurora.test"))
+				.andExpect(jsonPath("$.items.length()").value(2))
+				.andExpect(jsonPath("$.items[*].id", hasItem(firstItemId.toString())));
+
+		HousekeepingChecklist saved = housekeepingChecklistRepository.findDetailedById(checklistId).orElseThrow();
+		assertThat(saved.getItems()).extracting(item -> item.getId()).contains(firstItemId);
+		assertThat(saved.getStatus()).isEqualTo(HousekeepingChecklistStatus.completed);
+	}
+
+	@Test
+	void completeChecklistWithUncheckedItemsReturnsConflict() throws Exception {
+		Booking booking = createCheckedInBooking();
+		UUID requestId = createServiceRequest(booking, ServiceRequestType.housekeeping, ServiceRequestStatus.pending);
+		UUID checklistId = createChecklist(requestId);
+
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", checklistId)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\": \"completed\"}"))
+				.andExpect(status().isConflict())
+				.andExpect(jsonPath("$.status").value(409));
+	}
+
+	@Test
+	void updateMissingChecklistReturnsNotFound() throws Exception {
+		mockMvc.perform(put(CHECKLIST_PATH + "/{id}", UUID.randomUUID())
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{\"status\": \"in_progress\"}"))
+				.andExpect(status().isNotFound())
+				.andExpect(jsonPath("$.status").value(404));
+	}
+
 	/** Mismos permisos que el rol housekeeping sembrado: sin bookings.read. */
 	private RequestPostProcessor housekeepingUser() {
 		return userWithPermissions(
@@ -401,6 +553,27 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 				.id()).orElseThrow();
 		serviceRequestIds.add(stayover.getId());
 		return stayover;
+	}
+
+	private UUID createChecklist(UUID serviceRequestId) throws Exception {
+		MvcResult result = mockMvc.perform(post(CHECKLIST_PATH)
+						.with(housekeepingUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{
+								  "serviceRequestId": "%s",
+								  "items": [{"label": "Cambiar sabanas"}]
+								}
+								""".formatted(serviceRequestId)))
+				.andExpect(status().isCreated())
+				.andReturn();
+		return trackChecklist(result);
+	}
+
+	private UUID trackChecklist(MvcResult result) throws Exception {
+		UUID id = UUID.fromString(JsonPath.read(result.getResponse().getContentAsString(), "$.id"));
+		checklistIds.add(id);
+		return id;
 	}
 
 	private static RoomHousekeepingStatus nextStatus(RoomHousekeepingStatus housekeepingStatus) {

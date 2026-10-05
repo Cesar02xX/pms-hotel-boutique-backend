@@ -39,3 +39,5 @@ databaseChangeLog:
       file: db/changelog/migrations/019-service-requests-concierge-write-permission.sql
   - include:
       file: db/changelog/migrations/020-real-demo-seed.sql
+  - include:
+      file: db/changelog/migrations/021-housekeeping-checklists.sql
