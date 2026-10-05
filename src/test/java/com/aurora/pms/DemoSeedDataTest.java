@@ -20,16 +20,32 @@ class DemoSeedDataTest {
 				from users u
 				join roles r on r.id = u.role_id
 				where u.email in (
-					'admin.demo@aurora.test',
-					'recepcion.demo@aurora.test',
-					'limpieza.demo@aurora.test',
-					'conserjeria.demo@aurora.test',
-					'roomservice.demo@aurora.test'
+					'admin@aurora.test',
+					'recepcion@aurora.test',
+					'limpieza@aurora.test',
+					'conserjeria@aurora.test',
+					'roomservice@aurora.test'
 				)
 				  and u.status = 'active'
 				  and r.code in ('admin', 'reception', 'housekeeping', 'concierge', 'room_service')
 				""", Integer.class);
 		assertThat(activeUsers).isEqualTo(5);
+
+		Integer legacyUsers = jdbcTemplate.queryForObject("""
+				select count(*)
+				from users
+				where email in (
+					'admin.demo@aurora.test',
+					'recepcion.demo@aurora.test',
+					'limpieza.demo@aurora.test',
+					'conserjeria.demo@aurora.test',
+					'roomservice.demo@aurora.test',
+					'reception@aurora.test',
+					'housekeeping@aurora.test',
+					'concierge@aurora.test'
+				)
+				""", Integer.class);
+		assertThat(legacyUsers).isZero();
 
 		Integer guestLinks = jdbcTemplate.queryForObject("""
 				select count(*)

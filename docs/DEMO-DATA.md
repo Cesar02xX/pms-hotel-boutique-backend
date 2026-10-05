@@ -1,18 +1,18 @@
 # Datos demo reales
 
-La migracion `020-real-demo-seed.sql` deja una base PostgreSQL usable para demo sin depender de datos mock del frontend ni IDs legacy.
+Las migraciones `020-real-demo-seed.sql` y `021-simple-demo-users.sql` dejan una base PostgreSQL usable para demo sin depender de datos mock del frontend ni IDs legacy.
 
 ## Credenciales de personal
 
-Todas estas cuentas usan la contrasena demo `AuroraDemo123!`.
+Cada cuenta usa una contrasena simple igual a su rol para facilitar el acceso durante la demo.
 
-| Rol | Email |
-| --- | --- |
-| Administracion | `admin.demo@aurora.test` |
-| Recepcion | `recepcion.demo@aurora.test` |
-| Limpieza | `limpieza.demo@aurora.test` |
-| Conserjeria | `conserjeria.demo@aurora.test` |
-| Room Service | `roomservice.demo@aurora.test` |
+| Rol | Email | Contrasena |
+| --- | --- | --- |
+| Administracion | `admin@aurora.test` | `admin` |
+| Recepcion | `recepcion@aurora.test` | `recepcion` |
+| Limpieza | `limpieza@aurora.test` | `limpieza` |
+| Conserjeria | `conserjeria@aurora.test` | `conserjeria` |
+| Room Service | `roomservice@aurora.test` | `roomservice` |
 
 ## Accesos de huesped
 
@@ -41,7 +41,7 @@ PostgreSQL local por defecto:
 SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/pms_hotel_db
 SPRING_DATASOURCE_USERNAME=pms_user
 SPRING_DATASOURCE_PASSWORD=pms_password
-SECURITY_JWT_SECRET=01234567890123456789012345678901
+JWT_SECRET=01234567890123456789012345678901
 ```
 
-La contrasena demo anterior no es un secreto productivo y debe cambiarse fuera de entornos de prueba.
+Las contrasenas demo anteriores no son secretos productivos y deben cambiarse fuera de entornos de prueba.
