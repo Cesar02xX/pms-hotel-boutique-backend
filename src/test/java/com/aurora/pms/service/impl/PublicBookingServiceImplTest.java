@@ -475,6 +475,7 @@ class PublicBookingServiceImplTest {
 		OffsetDateTime now = OffsetDateTime.now(CLOCK);
 		return new BookingResponse(UUID.randomUUID(), "BKG-TEST0001", "GL-TEST0001", request.guestId(), null,
 				request.roomTypeId(), request.rateId(), request.checkIn(), request.checkOut(), BookingStatus.pending,
-				request.adults(), request.children(), rate.getPriceCents() * 4, "GTQ", request.notes(), now, now);
+				request.adults(), request.children(), rate.getPriceCents() * 4, "GTQ", request.notes(), null, null,
+				now, now);
 	}
 }
