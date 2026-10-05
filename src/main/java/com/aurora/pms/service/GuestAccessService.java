@@ -5,8 +5,10 @@ import java.util.UUID;
 
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
+import com.aurora.pms.dto.request.GuestLoginRequest;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
+import com.aurora.pms.dto.response.GuestLoginResponse;
 import com.aurora.pms.dto.response.GuestStayResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
@@ -14,6 +16,8 @@ import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 
 public interface GuestAccessService {
+
+	GuestLoginResponse login(GuestLoginRequest request);
 
 	GuestLinkResponse link(String code);
 
