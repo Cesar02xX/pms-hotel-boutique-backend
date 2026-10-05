@@ -79,6 +79,13 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 					assertThat(stored.getBooking()).isNull();
 					assertThat(stored.getType()).isEqualTo(ServiceRequestType.maintenance);
 				});
+
+		mockMvc.perform(get(BASE_PATH)
+						.param("type", "maintenance")
+						.param("roomId", room.getId().toString())
+						.with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(id.toString())));
 	}
 
 	@Test

@@ -35,3 +35,5 @@ databaseChangeLog:
       file: db/changelog/migrations/017-guest-notifications-cascade.sql
   - include:
       file: db/changelog/migrations/018-operations-maintenance-finance-api.sql
+  - include:
+      file: db/changelog/migrations/019-service-requests-concierge-write-permission.sql

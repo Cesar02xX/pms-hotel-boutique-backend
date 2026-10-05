@@ -30,8 +30,9 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
 	/** Filtros opcionales: un parámetro null no filtra. */
 	@Query("""
 			select r from ServiceRequest r
+			left join r.booking b
 			where r.type = :type
-			  and (:bookingId is null or r.booking.id = :bookingId)
+			  and (:bookingId is null or b.id = :bookingId)
 			  and (:status is null or r.status = :status)
 			order by r.requestedAt asc, r.createdAt asc
 			""")
@@ -43,10 +44,12 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
 
 	@Query("""
 			select r from ServiceRequest r
+			left join r.booking b
+			left join r.room room
 			where r.type in :allowedTypes
 			  and (:type is null or r.type = :type)
-			  and (:bookingId is null or r.booking.id = :bookingId)
-			  and (:roomId is null or r.room.id = :roomId)
+			  and (:bookingId is null or b.id = :bookingId)
+			  and (:roomId is null or room.id = :roomId)
 			  and (:status is null or r.status = :status)
 			order by r.requestedAt asc, r.createdAt asc
 			""")
