@@ -166,6 +166,78 @@ class BookingControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void confirmPendingBookingChangesStatus() throws Exception {
+		Booking booking = createBookingFixture();
+		booking.setStatus(BookingStatus.pending);
+		bookingRepository.save(booking);
+
+		mockMvc.perform(post("/api/v1/bookings/{id}/confirm", booking.getId()).with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.id").value(booking.getId().toString()))
+				.andExpect(jsonPath("$.status").value("confirmed"));
+
+		assertThat(bookingRepository.findById(booking.getId()))
+				.get().extracting(Booking::getStatus).isEqualTo(BookingStatus.confirmed);
+	}
+
+	@Test
+	void confirmNonPendingBookingReturnsBadRequest() throws Exception {
+		Booking booking = createBookingFixture();
+
+		mockMvc.perform(post("/api/v1/bookings/{id}/confirm", booking.getId()).with(staffUser()))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Only pending bookings can be confirmed"));
+	}
+
+	@Test
+	void cancelConfirmedBookingPersistsReason() throws Exception {
+		Booking booking = createBookingFixture();
+
+		mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"reason": "  Guest requested cancellation  "}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("cancelled"))
+				.andExpect(jsonPath("$.cancellationReason").value("Guest requested cancellation"))
+				.andExpect(jsonPath("$.cancelledAt").exists());
+
+		assertThat(bookingRepository.findById(booking.getId())).get()
+				.satisfies(stored -> {
+					assertThat(stored.getStatus()).isEqualTo(BookingStatus.cancelled);
+					assertThat(stored.getCancellationReason()).isEqualTo("Guest requested cancellation");
+					assertThat(stored.getCancelledAt()).isNotNull();
+				});
+	}
+
+	@Test
+	void cancelRequiresReasonAndAllowedStatus() throws Exception {
+		Booking booking = createBookingFixture();
+
+		mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"reason": " "}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.errors.reason").exists());
+
+		booking.setStatus(BookingStatus.checked_in);
+		bookingRepository.save(booking);
+		mockMvc.perform(post("/api/v1/bookings/{id}/cancel", booking.getId())
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"reason": "No longer valid"}
+								"""))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message").value("Only pending or confirmed bookings can be cancelled"));
+	}
+
+	@Test
 	void updateCheckedInBookingRejectsStructuralChanges() throws Exception {
 		Booking booking = createBookingFixture();
 		booking.setStatus(BookingStatus.checked_in);

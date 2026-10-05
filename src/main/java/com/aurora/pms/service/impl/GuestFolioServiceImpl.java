@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -64,6 +65,14 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 
 	@Override
 	@Transactional(readOnly = true)
+	public List<GuestFolioResponse> findAllFolios() {
+		return accountRepository.findAll(Sort.by("openedAt", "createdAt")).stream()
+				.map(this::toFolioResponse)
+				.toList();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
 	public GuestFolioResponse getFolio(UUID bookingId) {
 		ensureBookingExists(bookingId);
 		GuestAccount account = accountRepository.findByBookingId(bookingId)
@@ -99,6 +108,14 @@ public class GuestFolioServiceImpl implements GuestFolioService {
 	public List<ChargeResponse> findCharges(UUID bookingId) {
 		ensureBookingExists(bookingId);
 		return chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(bookingId).stream()
+				.map(folioMapper::toChargeResponse)
+				.toList();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<ChargeResponse> findAllCharges() {
+		return chargeRepository.findAll(Sort.by("chargedAt", "createdAt")).stream()
 				.map(folioMapper::toChargeResponse)
 				.toList();
 	}

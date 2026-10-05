@@ -38,7 +38,7 @@ implementadas en Java.
   ejemplo `roomTypeId` al crear una habitación), la respuesta es `400`, no
   `404`. El `404` se reserva para el recurso de la ruta.
   **Excepción actual:** Room Service responde `404` cuando no existen el
-  `bookingId` o el `productId` del body (ver sección 16).
+  `bookingId` o el `productId` del body (ver sección 17).
 - **Dinero:** siempre en **centavos enteros** (`Long`). La moneda es siempre
   `GTQ`. En pagos, depósitos y caja, los montos con decimales (`1.5`) se
   **rechazan** con `400` en lugar de truncarse. Lo mismo aplica a las
@@ -190,6 +190,18 @@ implementadas en Java.
   `PUT` general (huésped, tipo, habitación, tarifa, fechas u ocupantes). Esas
   operaciones quedan reservadas para flujos específicos futuros.
 
+### Confirmación y cancelación
+- **Confirmar (`POST /bookings/{id}/confirm`):** solo reservas `pending`
+  pueden pasar a `confirmed`. Confirmar cualquier otro estado responde `400`.
+- **Cancelar (`POST /bookings/{id}/cancel`):** solo reservas `pending` o
+  `confirmed` pueden pasar a `cancelled`.
+- La cancelación exige `reason` no vacío; el backend lo guarda recortado en
+  `cancellationReason`, registra `cancelledAt` y actualiza `updatedAt`.
+- Reservas `checked_in`, `checked_out`, `cancelled` o `no_show` no pueden
+  cancelarse por este endpoint.
+- Ambas operaciones bloquean la reserva para serializar cambios de estado
+  simultáneos.
+
 ### Check-in (`POST /bookings/{id}/check-in`)
 - Solo reservas en estado `confirmed`. Si ya está `checked_in`, se responde
   `"Booking is already checked in"`.
@@ -239,6 +251,9 @@ implementadas en Java.
 
 ## 9. Folio / cuenta del huésped (`/bookings/{bookingId}/folio`, `/charges`)
 
+- **Listado global:** `GET /guest-accounts` devuelve todas las cuentas de
+  huésped persistidas, sin depender de un `bookingId`. Usa la misma respuesta
+  de folio que el detalle por reserva, con cargos y totales calculados.
 - **Apertura idempotente:** `POST /folio/open` crea la cuenta (`201`) o
   devuelve la existente sin cambios (`200`). Hay una sola cuenta por reserva,
   asociada al huésped principal.
@@ -259,14 +274,19 @@ implementadas en Java.
     valor cero se rechazan con `400`.
   - Se crean con `status = posted` y suman al saldo.
   - Además de `POST /charges`, Room Service crea un cargo automáticamente al
-    entregar un pedido, con estas mismas reglas (ver sección 16).
+    entregar un pedido, con estas mismas reglas (ver sección 17).
 - **Anular cargo:** requiere `reason`, no se puede anular dos veces y resta
   el monto del saldo.
+- **Listado global de cargos:** `GET /charges` devuelve todos los cargos
+  persistidos, incluidos los anulados. Coexiste con
+  `GET /bookings/{bookingId}/charges`, que sigue filtrando por reserva.
 - **Cierre:** el folio se cierra exclusivamente como parte del checkout de la
   reserva.
 
 ## 10. Pagos (`/bookings/{bookingId}/payments`)
 
+- **Listado global:** `GET /payments` devuelve todos los pagos persistidos,
+  sin requerir `bookingId`. Coexiste con el listado por reserva.
 - Campos obligatorios: `amountCents` (> 0, entero) y `method`.
   `transactionReference` es opcional.
 - No hay pasarela de pago: el pago se registra directamente como
@@ -285,6 +305,8 @@ implementadas en Java.
 
 ## 11. Depósitos (`/bookings/{bookingId}/deposits`)
 
+- **Listado global:** `GET /deposits` devuelve todos los depósitos persistidos,
+  sin requerir `bookingId`. Coexiste con el listado por reserva.
 - Campos obligatorios: `amountCents` (> 0, entero) y `method`. `notes` es
   opcional.
 - Se crean como `held` (retenido), con `collectedAt` igual al momento del
@@ -357,7 +379,50 @@ implementadas en Java.
 
 ---
 
-## 13. Conserjería (`/concierge/requests`)
+## 13. Solicitudes operativas (`/service-requests`)
+
+- Gestiona solicitudes generales de operación sobre `ServiceRequest` para
+  crear o cambiar estado de `type = maintenance` u `other`. Las solicitudes
+  `concierge` y `housekeeping` se rechazan en esas mutaciones y deben usar sus
+  endpoints dedicados.
+- **Dominio por rol:** el backend valida el tipo permitido; no depende solo de
+  ocultar opciones en frontend.
+  - `admin`: puede ver todos los tipos y operar los tipos admitidos por este
+    endpoint.
+  - `housekeeping`: puede ver `housekeeping` y `maintenance`; en este endpoint
+    solo puede operar `maintenance`.
+  - `concierge`: puede ver `concierge`; sus cambios se hacen por el endpoint
+    dedicado de conserjería.
+  - `reception`: conserva visibilidad operativa de todos los tipos, pero solo
+    puede operar `maintenance` u `other` por este endpoint.
+  - `room_service`: no tiene dominio en `service-requests`; su dominio son
+    `orders`.
+  Consultar por ID o intentar modificar una solicitud fuera del dominio del rol
+  responde `403`.
+- **Listado (`GET`):** filtros opcionales `type`, `bookingId`, `roomId` y
+  `status`. Orden: de la más antigua a la más reciente (`requestedAt`).
+- **Detalle (`GET /{id}`):** si no existe → `404`.
+- **Creación (`POST`):**
+  - `roomId`, `type` y `description` (no vacía) son obligatorios.
+  - `bookingId` es opcional. Si se envía, la reserva debe existir, estar
+    `confirmed` o `checked_in`, y la habitación enviada debe ser la de la
+    reserva.
+  - Si no se envía `bookingId`, la solicitud queda asociada solo a la
+    habitación; `guestId` queda vacío.
+  - El backend fija `status = pending` y controla `requestedAt`, `createdAt`
+    y `updatedAt`.
+- **Flujo de estados (`POST /{id}/status`):**
+  - `pending → accepted | rejected | cancelled`
+  - `accepted → in_progress | cancelled`
+  - `in_progress → completed | cancelled`
+  - `completed`, `rejected` y `cancelled` son terminales.
+  - `in_progress` registra `startedAt`; `completed` registra `completedAt`.
+  - `responsibleUserId` opcional asigna responsable; si se omite, aceptar,
+    iniciar o completar puede asignar al usuario autenticado cuando existe en
+    `users`.
+  - `notes` opcional se agrega a las notas existentes, recortado.
+
+## 14. Conserjería (`/concierge/requests`)
 
 - **Solo solicitudes de conserjería.** El módulo trabaja sobre `ServiceRequest`
   únicamente con `type = concierge`:
@@ -414,7 +479,7 @@ implementadas en Java.
 - **Sin cargos:** el módulo nunca crea cargos ni toca el folio; `chargeId`
   queda en `null`.
 
-## 14. Inventario (`/inventory/items`)
+## 15. Inventario (`/inventory/items`)
 
 - **Fuente oficial:** `InventoryItem.currentQuantity` es la fuente oficial de
   existencias. `Product.stockQuantity` no se actualiza desde inventario ni se
@@ -462,7 +527,7 @@ implementadas en Java.
   mientras se registra el movimiento, asi que dos salidas simultaneas no
   pueden vender de mas ni perder una resta.
 - **Integracion con Room Service:** los pedidos descuentan y devuelven
-  existencias con movimientos automaticos (ver seccion 16):
+  existencias con movimientos automaticos (ver seccion 17):
   - al aceptar: `out` / `sale`;
   - al cancelar un pedido ya aceptado: `in` / `room_service_return`.
   - Estos movimientos aplican las mismas reglas de stock y bloqueo del
@@ -483,7 +548,7 @@ implementadas en Java.
 - Desactivar un artículo evita movimientos manuales nuevos, pero no borra
   historial ni modifica stock.
 
-## 15. Housekeeping (`/housekeeping/rooms`)
+## 16. Housekeeping (`/housekeeping/rooms`)
 
 - **Listado (`GET`):** todas las habitaciones ordenadas por numero, con
   filtro opcional `housekeepingStatus` (`dirty`, `cleaning`, `clean`,
@@ -530,7 +595,7 @@ implementadas en Java.
   - No cambia `Room.status` ni `Room.housekeepingStatus`: una habitacion
     `occupied` continua ocupada y no se libera por completar esta tarea.
 
-## 16. Room Service (`/room-service`)
+## 17. Room Service (`/room-service`)
 
 ### Productos (`GET /room-service/products`)
 - Solo lista productos **activos**, ordenados por nombre, con filtro
@@ -639,7 +704,7 @@ implementadas en Java.
 
 ---
 
-## 17. Portal huésped, amenidades y notificaciones
+## 18. Portal huésped, amenidades y notificaciones
 
 ### Room Service huésped (`/guest/room-service/orders`)
 - El huésped consulta solo pedidos de su estadía.
@@ -678,7 +743,7 @@ implementadas en Java.
   devuelve el listado actualizado. Es idempotente y nunca toca notificaciones
   de otra reserva.
 
-## 18. Administración, reportes y auditoría
+## 19. Administración, reportes y auditoría
 
 ### Usuarios, roles y permisos (`/admin/users`, `/admin/roles`, `/admin/permissions`)
 - Administración lista, crea y edita usuarios de personal. Las respuestas no
@@ -791,10 +856,9 @@ de la reserva, el `guestId` ni el `guestLinkCode`.
   reservas `pending` bloquean disponibilidad y no vencen, alguien podría crear
   reservas falsas y agotar el inventario público. Aceptado para el ticket #62;
   debe tratarse en un issue aparte.
-- **Reservas `pending` sin confirmación:** la API no tiene una operación para
-  pasar una reserva de `pending` a `confirmed` (`PUT /bookings/{id}` rechaza
-  cambios de `status`) y el check-in exige `confirmed`. Afecta a toda reserva,
-  incluidas las públicas; queda pendiente de un issue aparte.
+- **Reservas `pending`:** las reservas públicas se crean inicialmente en
+  `pending` y pueden confirmarse mediante `POST /bookings/{id}/confirm`. El
+  check-in continúa requiriendo estado `confirmed`.
 
 ## 20. Decisiones acordadas pendientes de implementación
 

@@ -109,7 +109,11 @@ abstract class AbstractCatalogApiTest {
 	}
 
 	protected RequestPostProcessor staffUser() {
-		return userWithPermissions("catalog.tester@aurora.test", SecurityPermissions.ALL.toArray(String[]::new));
+		List<SimpleGrantedAuthority> authorities = new ArrayList<>(SecurityPermissions.ALL.stream()
+				.map(SimpleGrantedAuthority::new)
+				.toList());
+		authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+		return user("catalog.tester@aurora.test").authorities(authorities);
 	}
 
 	protected RequestPostProcessor userWithPermissions(String email, String... permissions) {

@@ -23,17 +23,41 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
 	@Query("select r from ServiceRequest r where r.id = :id and r.type = :type")
 	Optional<ServiceRequest> findByIdAndTypeForUpdate(@Param("id") UUID id, @Param("type") ServiceRequestType type);
 
+	@Lock(LockModeType.PESSIMISTIC_WRITE)
+	@Query("select r from ServiceRequest r where r.id = :id")
+	Optional<ServiceRequest> findByIdForUpdate(@Param("id") UUID id);
+
 	/** Filtros opcionales: un parámetro null no filtra. */
 	@Query("""
 			select r from ServiceRequest r
+			left join r.booking b
 			where r.type = :type
-			  and (:bookingId is null or r.booking.id = :bookingId)
+			  and (:bookingId is null or b.id = :bookingId)
 			  and (:status is null or r.status = :status)
 			order by r.requestedAt asc, r.createdAt asc
 			""")
 	List<ServiceRequest> search(
 			@Param("type") ServiceRequestType type,
 			@Param("bookingId") UUID bookingId,
+			@Param("status") ServiceRequestStatus status
+	);
+
+	@Query("""
+			select r from ServiceRequest r
+			left join r.booking b
+			left join r.room room
+			where r.type in :allowedTypes
+			  and (:type is null or r.type = :type)
+			  and (:bookingId is null or b.id = :bookingId)
+			  and (:roomId is null or room.id = :roomId)
+			  and (:status is null or r.status = :status)
+			order by r.requestedAt asc, r.createdAt asc
+			""")
+	List<ServiceRequest> searchGeneral(
+			@Param("allowedTypes") List<ServiceRequestType> allowedTypes,
+			@Param("type") ServiceRequestType type,
+			@Param("bookingId") UUID bookingId,
+			@Param("roomId") UUID roomId,
 			@Param("status") ServiceRequestStatus status
 	);
 }
