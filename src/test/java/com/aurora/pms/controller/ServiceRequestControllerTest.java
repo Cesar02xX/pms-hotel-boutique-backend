@@ -111,8 +111,8 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 							.content("""
 									{"roomId": "%s", "type": "%s", "description": "Use dedicated endpoint"}
 									""".formatted(room.getId(), type)))
-					.andExpect(status().isBadRequest())
-					.andExpect(jsonPath("$.message").value("Use the dedicated endpoint for " + type + " requests"));
+					.andExpect(status().isForbidden())
+					.andExpect(jsonPath("$.status").value(403));
 		}
 	}
 
@@ -176,6 +176,34 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 
 		mockMvc.perform(post(BASE_PATH + "/{id}/status", housekeeping)
 						.with(roleUser("ROLE_RECEPTION", SecurityPermissions.SERVICE_REQUESTS_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted"}
+								"""))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
+	}
+
+	@Test
+	void housekeepingCannotCreateOtherRequest() throws Exception {
+		Room room = createRoom(createRoomType());
+
+		mockMvc.perform(post(BASE_PATH)
+						.with(roleUser("ROLE_HOUSEKEEPING", SecurityPermissions.SERVICE_REQUESTS_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"roomId": "%s", "type": "other", "description": "Operational follow-up"}
+								""".formatted(room.getId())))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
+	}
+
+	@Test
+	void housekeepingCannotChangeOtherRequestById() throws Exception {
+		UUID other = persistRequest(createServiceBooking(), ServiceRequestType.other, "Operational follow-up");
+
+		mockMvc.perform(post(BASE_PATH + "/{id}/status", other)
+						.with(roleUser("ROLE_HOUSEKEEPING", SecurityPermissions.SERVICE_REQUESTS_WRITE))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
 								{"status": "accepted"}

@@ -206,11 +206,11 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 	}
 
 	private static List<ServiceRequestType> allowedWriteTypes() {
-		if (hasAuthority("ROLE_ADMIN")) {
-			return List.copyOf(EnumSet.allOf(ServiceRequestType.class));
-		}
-		if (hasAuthority("ROLE_RECEPTION") || hasAuthority("ROLE_HOUSEKEEPING")) {
+		if (hasAuthority("ROLE_ADMIN") || hasAuthority("ROLE_RECEPTION")) {
 			return List.copyOf(OPERABLE_TYPES);
+		}
+		if (hasAuthority("ROLE_HOUSEKEEPING")) {
+			return List.of(ServiceRequestType.maintenance);
 		}
 		return List.of();
 	}
