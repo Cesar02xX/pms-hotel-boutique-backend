@@ -43,13 +43,15 @@ public interface ServiceRequestRepository extends JpaRepository<ServiceRequest, 
 
 	@Query("""
 			select r from ServiceRequest r
-			where (:type is null or r.type = :type)
+			where r.type in :allowedTypes
+			  and (:type is null or r.type = :type)
 			  and (:bookingId is null or r.booking.id = :bookingId)
 			  and (:roomId is null or r.room.id = :roomId)
 			  and (:status is null or r.status = :status)
 			order by r.requestedAt asc, r.createdAt asc
 			""")
 	List<ServiceRequest> searchGeneral(
+			@Param("allowedTypes") List<ServiceRequestType> allowedTypes,
 			@Param("type") ServiceRequestType type,
 			@Param("bookingId") UUID bookingId,
 			@Param("roomId") UUID roomId,

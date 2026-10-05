@@ -2,12 +2,16 @@ package com.aurora.pms.service.impl;
 
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +45,9 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 			ServiceRequestStatus.in_progress,
 			ServiceRequestStatus.completed
 	);
+
+	private static final Set<ServiceRequestType> OPERABLE_TYPES =
+			EnumSet.of(ServiceRequestType.maintenance, ServiceRequestType.other);
 
 	private static final Map<ServiceRequestStatus, Set<ServiceRequestStatus>> TRANSITIONS = Map.of(
 			ServiceRequestStatus.pending, EnumSet.of(ServiceRequestStatus.accepted, ServiceRequestStatus.rejected,
@@ -79,7 +86,14 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 	@Transactional(readOnly = true)
 	public List<ServiceRequestResponse> findAll(ServiceRequestType type, UUID bookingId, UUID roomId,
 			ServiceRequestStatus status) {
-		return serviceRequestRepository.searchGeneral(type, bookingId, roomId, status).stream()
+		List<ServiceRequestType> allowedTypes = allowedReadTypes();
+		if (allowedTypes.isEmpty()) {
+			throw new AccessDeniedException("User has no service request operational domain");
+		}
+		if (type != null && !allowedTypes.contains(type)) {
+			throw accessDenied(type);
+		}
+		return serviceRequestRepository.searchGeneral(allowedTypes, type, bookingId, roomId, status).stream()
 				.map(serviceRequestMapper::toResponse)
 				.toList();
 	}
@@ -87,13 +101,16 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 	@Override
 	@Transactional(readOnly = true)
 	public ServiceRequestResponse findById(UUID id) {
-		return serviceRequestMapper.toResponse(serviceRequestRepository.findById(id)
-				.orElseThrow(() -> notFound(id)));
+		ServiceRequest serviceRequest = serviceRequestRepository.findById(id)
+				.orElseThrow(() -> notFound(id));
+		validateCanRead(serviceRequest.getType());
+		return serviceRequestMapper.toResponse(serviceRequest);
 	}
 
 	@Override
 	@Transactional
 	public ServiceRequestResponse create(CreateServiceRequestRequest request) {
+		validateCanWrite(request.type());
 		Room room = roomRepository.findById(request.roomId())
 				.orElseThrow(() -> new BadRequestException("Room not found: " + request.roomId()));
 		Booking booking = request.bookingId() == null ? null : bookingRepository.findById(request.bookingId())
@@ -121,6 +138,7 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 	public ServiceRequestResponse updateStatus(UUID id, UpdateServiceRequestStatusRequest request, String actorEmail) {
 		ServiceRequest serviceRequest = serviceRequestRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> notFound(id));
+		validateCanWrite(serviceRequest.getType());
 		if (serviceRequest.getType() == ServiceRequestType.concierge
 				|| serviceRequest.getType() == ServiceRequestType.housekeeping) {
 			throw dedicatedEndpoint(serviceRequest.getType());
@@ -172,6 +190,55 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 	private User findResponsibleUser(UUID userId) {
 		return userRepository.findById(userId)
 				.orElseThrow(() -> new BadRequestException("Responsible user not found: " + userId));
+	}
+
+	private static List<ServiceRequestType> allowedReadTypes() {
+		if (hasAuthority("ROLE_ADMIN") || hasAuthority("ROLE_RECEPTION")) {
+			return List.copyOf(EnumSet.allOf(ServiceRequestType.class));
+		}
+		if (hasAuthority("ROLE_HOUSEKEEPING")) {
+			return List.of(ServiceRequestType.housekeeping, ServiceRequestType.maintenance);
+		}
+		if (hasAuthority("ROLE_CONCIERGE")) {
+			return List.of(ServiceRequestType.concierge);
+		}
+		return List.of();
+	}
+
+	private static List<ServiceRequestType> allowedWriteTypes() {
+		if (hasAuthority("ROLE_ADMIN")) {
+			return List.copyOf(EnumSet.allOf(ServiceRequestType.class));
+		}
+		if (hasAuthority("ROLE_RECEPTION") || hasAuthority("ROLE_HOUSEKEEPING")) {
+			return List.copyOf(OPERABLE_TYPES);
+		}
+		return List.of();
+	}
+
+	private static void validateCanRead(ServiceRequestType type) {
+		if (!allowedReadTypes().contains(type)) {
+			throw accessDenied(type);
+		}
+	}
+
+	private static void validateCanWrite(ServiceRequestType type) {
+		if (!allowedWriteTypes().contains(type)) {
+			throw accessDenied(type);
+		}
+	}
+
+	private static boolean hasAuthority(String authority) {
+		if (SecurityContextHolder.getContext().getAuthentication() == null) {
+			return false;
+		}
+		Collection<? extends GrantedAuthority> authorities = SecurityContextHolder.getContext()
+				.getAuthentication()
+				.getAuthorities();
+		return authorities.stream().anyMatch(grantedAuthority -> grantedAuthority.getAuthority().equals(authority));
+	}
+
+	private static AccessDeniedException accessDenied(ServiceRequestType type) {
+		return new AccessDeniedException("Service request type is outside the user's operational domain: " + type);
 	}
 
 	private static ResourceNotFoundException notFound(UUID id) {

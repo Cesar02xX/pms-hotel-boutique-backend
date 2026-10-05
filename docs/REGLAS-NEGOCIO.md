@@ -381,6 +381,20 @@ implementadas en Java.
   crear o cambiar estado de `type = maintenance` u `other`. Las solicitudes
   `concierge` y `housekeeping` se rechazan en esas mutaciones y deben usar sus
   endpoints dedicados.
+- **Dominio por rol:** el backend valida el tipo permitido; no depende solo de
+  ocultar opciones en frontend.
+  - `admin`: puede ver todos los tipos y operar los tipos admitidos por este
+    endpoint.
+  - `housekeeping`: puede ver `housekeeping` y `maintenance`; en este endpoint
+    solo puede operar `maintenance`.
+  - `concierge`: puede ver `concierge`; sus cambios se hacen por el endpoint
+    dedicado de conserjería.
+  - `reception`: conserva visibilidad operativa de todos los tipos, pero solo
+    puede operar `maintenance` u `other` por este endpoint.
+  - `room_service`: no tiene dominio en `service-requests`; su dominio son
+    `orders`.
+  Consultar por ID o intentar modificar una solicitud fuera del dominio del rol
+  responde `403`.
 - **Listado (`GET`):** filtros opcionales `type`, `bookingId`, `roomId` y
   `status`. Orden: de la más antigua a la más reciente (`requestedAt`).
 - **Detalle (`GET /{id}`):** si no existe → `404`.

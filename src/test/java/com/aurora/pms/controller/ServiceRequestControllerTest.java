@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
@@ -23,7 +25,9 @@ import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Room;
@@ -32,6 +36,7 @@ import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.ServiceRequestRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.jayway.jsonpath.JsonPath;
 
 class ServiceRequestControllerTest extends AbstractCatalogApiTest {
@@ -128,6 +133,63 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 		mockMvc.perform(get(BASE_PATH + "/{id}", maintenance).with(staffUser()))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.description").value("Leak under sink"));
+	}
+
+	@Test
+	void housekeepingOnlyListsHousekeepingAndMaintenanceRequests() throws Exception {
+		Booking booking = createServiceBooking();
+		UUID housekeeping = persistRequest(booking, ServiceRequestType.housekeeping, "Stayover cleanup");
+		UUID maintenance = persistRequest(booking, ServiceRequestType.maintenance, "Loose faucet");
+		UUID concierge = persistRequest(booking, ServiceRequestType.concierge, "Dinner booking");
+		UUID other = persistRequest(booking, ServiceRequestType.other, "Operational note");
+
+		mockMvc.perform(get(BASE_PATH).with(roleUser("ROLE_HOUSEKEEPING", SecurityPermissions.SERVICE_REQUESTS_READ)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].id", hasItem(housekeeping.toString())))
+				.andExpect(jsonPath("$[*].id", hasItem(maintenance.toString())))
+				.andExpect(jsonPath("$[*].id", not(hasItem(concierge.toString()))))
+				.andExpect(jsonPath("$[*].id", not(hasItem(other.toString()))));
+	}
+
+	@Test
+	void detailOutsideRoleDomainReturnsForbidden() throws Exception {
+		UUID maintenance = persistRequest(createServiceBooking(), ServiceRequestType.maintenance, "Fix light");
+
+		mockMvc.perform(get(BASE_PATH + "/{id}", maintenance)
+						.with(roleUser("ROLE_CONCIERGE", SecurityPermissions.SERVICE_REQUESTS_READ)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
+	}
+
+	@Test
+	void roleFilterOutsideDomainReturnsForbidden() throws Exception {
+		mockMvc.perform(get(BASE_PATH)
+						.param("type", "concierge")
+						.with(roleUser("ROLE_HOUSEKEEPING", SecurityPermissions.SERVICE_REQUESTS_READ)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
+	}
+
+	@Test
+	void receptionCannotChangeSpecializedRequestById() throws Exception {
+		UUID housekeeping = persistRequest(createServiceBooking(), ServiceRequestType.housekeeping, "Refresh towels");
+
+		mockMvc.perform(post(BASE_PATH + "/{id}/status", housekeeping)
+						.with(roleUser("ROLE_RECEPTION", SecurityPermissions.SERVICE_REQUESTS_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted"}
+								"""))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
+	}
+
+	@Test
+	void roomServiceCannotUseServiceRequestsEvenWithPermission() throws Exception {
+		mockMvc.perform(get(BASE_PATH)
+						.with(roleUser("ROLE_ROOM_SERVICE", SecurityPermissions.SERVICE_REQUESTS_READ)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
 	}
 
 	@Test
@@ -246,6 +308,30 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 								{"status": "%s"}
 								""".formatted(status)))
 				.andExpect(status().isOk());
+	}
+
+	private UUID persistRequest(Booking booking, ServiceRequestType type, String description) {
+		ServiceRequest request = new ServiceRequest();
+		request.setBooking(booking);
+		request.setRoom(booking.getRoom());
+		request.setGuest(booking.getGuest());
+		request.setType(type);
+		request.setDescription(description);
+		request.setStatus(ServiceRequestStatus.pending);
+		request.setRequestedAt(now());
+		request.setCreatedAt(now());
+		request.setUpdatedAt(now());
+		request = serviceRequestRepository.save(request);
+		requestIds.add(request.getId());
+		return request.getId();
+	}
+
+	private static RequestPostProcessor roleUser(String role, String permission) {
+		return user(role.toLowerCase() + "@aurora.test")
+				.authorities(
+						new SimpleGrantedAuthority(role),
+						new SimpleGrantedAuthority(permission)
+				);
 	}
 
 	private UUID trackRequest(MvcResult result) throws Exception {
