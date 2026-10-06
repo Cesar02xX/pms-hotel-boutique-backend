@@ -161,6 +161,8 @@ public class SecurityConfig {
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.DEPOSITS_WRITE)
 						.requestMatchers(HttpMethod.POST, "/api/v1/bookings/*/deposits/*/refund")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.DEPOSITS_WRITE)
+						.requestMatchers(HttpMethod.POST, "/api/v1/bookings/*/deposits/*/apply")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.DEPOSITS_WRITE)
 						.requestMatchers(HttpMethod.GET, "/api/v1/bookings/*/folio")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.FOLIOS_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/bookings/*/folio/open")
