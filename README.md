@@ -52,6 +52,16 @@ En macOS/Linux:
 ./mvnw test
 ```
 
+## CI/CD y calidad
+
+- PR hacia `develop`/`development`/`main`: build, tests, coverage JaCoCo y SonarQube (`.github/workflows/backend-ci.yml`).
+- `main`: tag semántico, GitHub Release con `.jar`, imagen en GHCR y deploy placeholder (`.github/workflows/backend-release.yml`).
+- Jenkins on-premise: `Jenkinsfile`.
+- SonarQube self-hosted: `docker compose -f docker-compose.sonarqube.yml up -d` → `http://localhost:9000`.
+- Variables locales: `cp .env.example .env`.
+
+Detalle completo, secrets y quality gate en [docs/CI-CD.md](docs/CI-CD.md).
+
 ## Arquitectura base
 
 El proyecto sigue una arquitectura en capas:

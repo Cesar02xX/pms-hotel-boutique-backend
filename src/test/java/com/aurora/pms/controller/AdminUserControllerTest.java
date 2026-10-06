@@ -127,7 +127,7 @@ class AdminUserControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
-	void adminRoleCannotBeDeactivatedOrHavePermissionsReplaced() throws Exception {
+	void adminRoleCannotBeDeactivatedAndKeepsRequiredPanelPermissions() throws Exception {
 		Role admin = roleRepository.findByCode("admin")
 				.orElseGet(() -> createRole("admin", "Admin"));
 
@@ -147,11 +147,16 @@ class AdminUserControllerTest extends AbstractCatalogApiTest {
 						.contentType("application/json")
 						.content("""
 								{
-								  "permissions": ["rooms.read"]
+								  "permissions": ["guest-portal.home"]
 								}
 								"""))
-				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.message").value("ADMIN role permissions cannot be replaced"));
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.permissions", hasItem(SecurityPermissions.GUEST_PORTAL_HOME)))
+				.andExpect(jsonPath("$.permissions", hasItem(SecurityPermissions.ROOMS_READ)))
+				.andExpect(jsonPath("$.permissions", hasItem(SecurityPermissions.ROOMS_WRITE)))
+				.andExpect(jsonPath("$.permissions", hasItem(SecurityPermissions.RATES_WRITE)))
+				.andExpect(jsonPath("$.permissions", hasItem(SecurityPermissions.CASH_WRITE)))
+				.andExpect(jsonPath("$.permissions", not(hasItem(SecurityPermissions.GUEST_PORTAL_STAY))));
 	}
 
 	private Role createRole(String code, String name) {

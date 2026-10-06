@@ -39,6 +39,14 @@ public final class SecurityPermissions {
 	public static final String CONCIERGE_WRITE = "concierge.write";
 	public static final String SERVICE_REQUESTS_READ = "service-requests.read";
 	public static final String SERVICE_REQUESTS_WRITE = "service-requests.write";
+	public static final String GUEST_PORTAL_HOME = "guest-portal.home";
+	public static final String GUEST_PORTAL_RESERVATIONS = "guest-portal.reservations";
+	public static final String GUEST_PORTAL_STAY = "guest-portal.stay";
+	public static final String GUEST_PORTAL_AMENITIES = "guest-portal.amenities";
+	public static final String GUEST_PORTAL_SERVICES = "guest-portal.services";
+	public static final String GUEST_PORTAL_ROOM_SERVICE = "guest-portal.room-service";
+	public static final String GUEST_PORTAL_REQUESTS = "guest-portal.requests";
+	public static final String GUEST_PORTAL_NOTIFICATIONS = "guest-portal.notifications";
 
 	public static final List<String> ALL = List.of(
 			ROOMS_READ,
@@ -75,7 +83,15 @@ public final class SecurityPermissions {
 			CONCIERGE_READ,
 			CONCIERGE_WRITE,
 			SERVICE_REQUESTS_READ,
-			SERVICE_REQUESTS_WRITE
+			SERVICE_REQUESTS_WRITE,
+			GUEST_PORTAL_HOME,
+			GUEST_PORTAL_RESERVATIONS,
+			GUEST_PORTAL_STAY,
+			GUEST_PORTAL_AMENITIES,
+			GUEST_PORTAL_SERVICES,
+			GUEST_PORTAL_ROOM_SERVICE,
+			GUEST_PORTAL_REQUESTS,
+			GUEST_PORTAL_NOTIFICATIONS
 	);
 
 	private SecurityPermissions() {

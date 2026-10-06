@@ -39,3 +39,11 @@ databaseChangeLog:
       file: db/changelog/migrations/019-service-requests-concierge-write-permission.sql
   - include:
       file: db/changelog/migrations/020-real-demo-seed.sql
+  - include:
+      file: db/changelog/migrations/021-simple-demo-users.sql
+  - include:
+      file: db/changelog/migrations/022-remove-legacy-staff-users.sql
+  - include:
+      file: db/changelog/migrations/023-guest-portal-ui-permissions.sql
+  - include:
+      file: db/changelog/migrations/024-guest-credentials.sql

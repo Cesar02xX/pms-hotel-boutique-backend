@@ -36,10 +36,35 @@ import com.aurora.pms.repository.PermissionRepository;
 import com.aurora.pms.repository.RolePermissionRepository;
 import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.UserRepository;
+import com.aurora.pms.security.SecurityPermissions;
 import com.aurora.pms.service.AdminUserService;
 
 @Service
 public class AdminUserServiceImpl implements AdminUserService {
+
+	private static final String ADMIN_ROLE_CODE = "admin";
+	private static final List<String> REQUIRED_ADMIN_PERMISSION_KEYS = List.of(
+			SecurityPermissions.BOOKINGS_READ,
+			SecurityPermissions.ROOMS_READ,
+			SecurityPermissions.ROOMS_WRITE,
+			SecurityPermissions.ROOM_TYPES_READ,
+			SecurityPermissions.ROOM_TYPES_WRITE,
+			SecurityPermissions.ROOM_FEATURES_READ,
+			SecurityPermissions.RATES_READ,
+			SecurityPermissions.RATES_WRITE,
+			SecurityPermissions.ROOM_SERVICE_READ,
+			SecurityPermissions.ROOM_SERVICE_WRITE,
+			SecurityPermissions.CONCIERGE_READ,
+			SecurityPermissions.CONCIERGE_WRITE,
+			SecurityPermissions.HOUSEKEEPING_READ,
+			SecurityPermissions.PAYMENTS_READ,
+			SecurityPermissions.DEPOSITS_READ,
+			SecurityPermissions.CHARGES_READ,
+			SecurityPermissions.INVENTORY_READ,
+			SecurityPermissions.INVENTORY_WRITE,
+			SecurityPermissions.CASH_READ,
+			SecurityPermissions.CASH_WRITE
+	);
 
 	private final UserRepository userRepository;
 	private final RoleRepository roleRepository;
@@ -182,8 +207,7 @@ public class AdminUserServiceImpl implements AdminUserService {
 	@Transactional
 	public RoleResponse updateRolePermissions(UUID id, UpdateRolePermissionsRequest request) {
 		Role role = getRole(id);
-		ensureCanChangePermissions(role);
-		replacePermissions(role, request.permissions());
+		replacePermissions(role, withRequiredAdminPermissions(role, request.permissions()));
 		role.setUpdatedAt(OffsetDateTime.now());
 		return toRoleResponse(roleRepository.save(role));
 	}
@@ -258,15 +282,22 @@ public class AdminUserServiceImpl implements AdminUserService {
 	}
 
 	private static void ensureCanChangeActive(Role role, boolean nextActive) {
-		if ("admin".equalsIgnoreCase(role.getCode()) && !nextActive) {
+		if (isAdminRole(role) && !nextActive) {
 			throw new BadRequestException("ADMIN role cannot be deactivated");
 		}
 	}
 
-	private static void ensureCanChangePermissions(Role role) {
-		if ("admin".equalsIgnoreCase(role.getCode())) {
-			throw new BadRequestException("ADMIN role permissions cannot be replaced");
+	private static List<String> withRequiredAdminPermissions(Role role, List<String> permissionKeys) {
+		if (!isAdminRole(role)) {
+			return permissionKeys;
 		}
+		Set<String> merged = new HashSet<>(permissionKeys);
+		merged.addAll(REQUIRED_ADMIN_PERMISSION_KEYS);
+		return merged.stream().sorted().toList();
+	}
+
+	private static boolean isAdminRole(Role role) {
+		return ADMIN_ROLE_CODE.equalsIgnoreCase(role.getCode());
 	}
 
 	private UserAdminResponse toUserResponse(User user) {

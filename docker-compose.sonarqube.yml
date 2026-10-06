@@ -1,0 +1,47 @@
+# SonarQube self-hosted para análisis estático del backend.
+# Uso: docker compose -f docker-compose.sonarqube.yml up -d
+# UI:  http://localhost:9000 (usuario inicial admin / admin)
+services:
+  sonarqube-db:
+    image: postgres:16-alpine
+    container_name: pms-sonarqube-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SONAR_DB_NAME:-sonarqube}
+      POSTGRES_USER: ${SONAR_DB_USER:-sonar}
+      POSTGRES_PASSWORD: ${SONAR_DB_PASSWORD:-sonar_password}
+    volumes:
+      - pms_sonarqube_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SONAR_DB_USER:-sonar} -d ${SONAR_DB_NAME:-sonarqube}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  sonarqube:
+    image: sonarqube:community
+    container_name: pms-sonarqube
+    restart: unless-stopped
+    depends_on:
+      sonarqube-db:
+        condition: service_healthy
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonarqube-db:5432/${SONAR_DB_NAME:-sonarqube}
+      SONAR_JDBC_USERNAME: ${SONAR_DB_USER:-sonar}
+      SONAR_JDBC_PASSWORD: ${SONAR_DB_PASSWORD:-sonar_password}
+    ports:
+      - "${SONARQUBE_PORT:-9000}:9000"
+    volumes:
+      - pms_sonarqube_data:/opt/sonarqube/data
+      - pms_sonarqube_extensions:/opt/sonarqube/extensions
+      - pms_sonarqube_logs:/opt/sonarqube/logs
+    ulimits:
+      nofile:
+        soft: 131072
+        hard: 131072
+
+volumes:
+  pms_sonarqube_db:
+  pms_sonarqube_data:
+  pms_sonarqube_extensions:
+  pms_sonarqube_logs:

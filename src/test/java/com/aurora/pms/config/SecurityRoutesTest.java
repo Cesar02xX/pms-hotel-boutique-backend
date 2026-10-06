@@ -177,6 +177,14 @@ class SecurityRoutesTest {
 	}
 
 	@Test
+	void guestLoginEndpointIsPublicAndValidatedByController() throws Exception {
+		mockMvc.perform(post("/api/v1/guest/auth/login")
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("{}"))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
 	void refreshEndpointIsPublicAndValidatedByController() throws Exception {
 		mockMvc.perform(post("/api/v1/auth/refresh")
 						.contentType(MediaType.APPLICATION_JSON)

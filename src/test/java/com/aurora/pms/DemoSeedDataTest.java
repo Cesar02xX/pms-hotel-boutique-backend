@@ -20,16 +20,32 @@ class DemoSeedDataTest {
 				from users u
 				join roles r on r.id = u.role_id
 				where u.email in (
-					'admin.demo@aurora.test',
-					'recepcion.demo@aurora.test',
-					'limpieza.demo@aurora.test',
-					'conserjeria.demo@aurora.test',
-					'roomservice.demo@aurora.test'
+					'admin@aurora.test',
+					'recepcion@aurora.test',
+					'limpieza@aurora.test',
+					'conserjeria@aurora.test',
+					'roomservice@aurora.test'
 				)
 				  and u.status = 'active'
 				  and r.code in ('admin', 'reception', 'housekeeping', 'concierge', 'room_service')
 				""", Integer.class);
 		assertThat(activeUsers).isEqualTo(5);
+
+		Integer legacyUsers = jdbcTemplate.queryForObject("""
+				select count(*)
+				from users
+				where email in (
+					'admin.demo@aurora.test',
+					'recepcion.demo@aurora.test',
+					'limpieza.demo@aurora.test',
+					'conserjeria.demo@aurora.test',
+					'roomservice.demo@aurora.test',
+					'reception@aurora.test',
+					'housekeeping@aurora.test',
+					'concierge@aurora.test'
+				)
+				""", Integer.class);
+		assertThat(legacyUsers).isZero();
 
 		Integer guestLinks = jdbcTemplate.queryForObject("""
 				select count(*)
@@ -42,6 +58,16 @@ class DemoSeedDataTest {
 				  and ga.status = 'open'
 				""", Integer.class);
 		assertThat(guestLinks).isEqualTo(2);
+
+		Integer guestCredentials = jdbcTemplate.queryForObject("""
+				select count(*)
+				from guest_credentials gc
+				join guests g on g.id = gc.guest_id
+				where gc.email in ('ana.demo@aurora.test', 'carlos.demo@aurora.test')
+				  and gc.active = true
+				  and gc.password_hash like '$2%'
+				""", Integer.class);
+		assertThat(guestCredentials).isEqualTo(2);
 	}
 
 	@Test

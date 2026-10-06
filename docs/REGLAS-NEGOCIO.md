@@ -1,4 +1,4 @@
-﻿# Reglas de negocio — PMS Hotel Boutique Aurora (backend)
+# Reglas de negocio — PMS Hotel Boutique Aurora (backend)
 
 Resumen de las reglas de negocio **implementadas actualmente** en el backend,
 separadas por módulo. Cada regla sale del código (services, DTOs y queries),
@@ -81,16 +81,26 @@ implementadas en Java.
   - Expiraciones configurables: access token de 30 min y refresh token de
     7 días por defecto.
 
-### Acceso de huésped (`/guest/auth/link`, `/guest/**`)
+### Acceso de huésped (`/guest/auth/login`, `/guest/auth/link`, `/guest/**`)
 - El login de personal se mantiene separado del acceso de huésped. El huésped
-  no recibe permisos de empleado; su JWT solo lleva `ROLE_GUEST`.
-- `POST /guest/auth/link` acepta `guestLinkCode` y emite access token cuando
-  la reserva está `checked_in` y la fecha actual cae dentro de la estadía
-  (`checkIn <= hoy < checkOut`).
-- Códigos inexistentes, vencidos, aún no activos o no utilizables responden
-  `400`.
+  no recibe permisos de empleado; las credenciales se almacenan en la tabla
+  `guest_credentials` con contraseñas hasheadas en BCrypt, y su JWT solo lleva
+  `ROLE_GUEST`.
+- **Login por credenciales (`POST /guest/auth/login`):** flujo principal de
+  autenticación. Acepta `email` y `password`. Si las credenciales son incorrectas
+  o la cuenta está inactiva, responde `401 Unauthorized` controlado.
+  Al autenticar correctamente, verifica que el huésped tenga una estadía activa en
+  estado `checked_in` dentro del rango (`checkIn <= hoy < checkOut`). Si no tiene
+  estadía activa, responde `400 Bad Request`. Retorna un JWT de tipo `guest`
+  asociado a dicha reserva.
+- **Login por código (`POST /guest/auth/link`):** flujo **deprecado**, mantenido
+  únicamente por compatibilidad temporal. Acepta `code` y emite access token
+  cuando la reserva está `checked_in` y la fecha actual cae dentro de la estadía
+  (`checkIn <= hoy < checkOut`). Códigos inexistentes, vencidos o no utilizables
+  responden `400`.
 - Todas las rutas `/guest/**` derivan la reserva desde el JWT. El cliente no
-  puede consultar o modificar recursos de otra estadía cambiando IDs.
+  puede consultar o modificar recursos de otra estadía cambiando IDs (aislamiento
+  estricto multi-huésped; intentos devuelven `403 Forbidden` o `404 Not Found`).
 - `GET /guest/stay` devuelve reserva, huésped titular, habitación, tipo de
   habitación, fechas, estado, saldo de folio y moneda.
 
