@@ -14,13 +14,19 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Clock;
+import java.time.temporal.ChronoUnit;
+import org.springframework.beans.factory.annotation.Value;
 
+import com.aurora.pms.dto.request.CreateBookingRequest;
+import com.aurora.pms.dto.request.CreateGuestBookingRequest;
 import com.aurora.pms.dto.request.CreateConciergeRequestRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
 import com.aurora.pms.dto.request.UpdateConciergeRequestStatusRequest;
+import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
 import com.aurora.pms.dto.response.GuestLoginResponse;
@@ -28,11 +34,15 @@ import com.aurora.pms.dto.response.GuestStayResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.exception.BadRequestException;
+import com.aurora.pms.exception.ConflictException;
 import com.aurora.pms.exception.ResourceNotFoundException;
+import com.aurora.pms.mapper.BookingMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.GuestCredential;
+import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
+import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.OrderStatus;
@@ -41,9 +51,11 @@ import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.GuestCredentialRepository;
+import com.aurora.pms.repository.RoomTypeRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.security.GuestPrincipal;
 import com.aurora.pms.security.JwtService;
+import com.aurora.pms.service.BookingService;
 import com.aurora.pms.service.ConciergeRequestService;
 import com.aurora.pms.service.GuestAccessService;
 import com.aurora.pms.service.GuestNotificationService;
@@ -58,6 +70,9 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	private static final EnumSet<ServiceRequestStatus> GUEST_CANCELLABLE_REQUESTS =
 			EnumSet.of(ServiceRequestStatus.pending, ServiceRequestStatus.accepted);
 
+	private static final int MAX_STAY_NIGHTS = 30;
+	private static final String NO_AVAILABILITY_MESSAGE = "No availability for the requested room type and dates";
+
 	private final BookingRepository bookingRepository;
 	private final GuestAccountRepository guestAccountRepository;
 	private final GuestCredentialRepository guestCredentialRepository;
@@ -68,6 +83,12 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	private final JwtService jwtService;
 	private final GuestNotificationService guestNotificationService;
 	private final PasswordEncoder passwordEncoder;
+	private final RoomTypeRepository roomTypeRepository;
+	private final RoomTypeAvailability roomTypeAvailability;
+	private final BookingService bookingService;
+	private final BookingMapper bookingMapper;
+	private final Clock clock;
+	private final ZoneId hotelZoneId;
 
 	public GuestAccessServiceImpl(
 			BookingRepository bookingRepository,
@@ -79,7 +100,13 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 			ConciergeRequestService conciergeRequestService,
 			JwtService jwtService,
 			GuestNotificationService guestNotificationService,
-			PasswordEncoder passwordEncoder
+			PasswordEncoder passwordEncoder,
+			RoomTypeRepository roomTypeRepository,
+			RoomTypeAvailability roomTypeAvailability,
+			BookingService bookingService,
+			BookingMapper bookingMapper,
+			Clock clock,
+			@Value("${pms.hotel.zone-id}") String hotelZoneId
 	) {
 		this.bookingRepository = bookingRepository;
 		this.guestAccountRepository = guestAccountRepository;
@@ -91,6 +118,12 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 		this.jwtService = jwtService;
 		this.guestNotificationService = guestNotificationService;
 		this.passwordEncoder = passwordEncoder;
+		this.roomTypeRepository = roomTypeRepository;
+		this.roomTypeAvailability = roomTypeAvailability;
+		this.bookingService = bookingService;
+		this.bookingMapper = bookingMapper;
+		this.clock = clock;
+		this.hotelZoneId = ZoneId.of(hotelZoneId);
 	}
 
 	@Override
@@ -274,6 +307,117 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 		return conciergeRequestService.updateStatus(requestId,
 				new UpdateConciergeRequestStatusRequest(ServiceRequestStatus.cancelled, null, null));
 	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<BookingResponse> findBookings(UUID guestId) {
+		return bookingRepository.findByGuestIdOrderByCheckInDesc(guestId).stream()
+				.map(bookingMapper::toResponse)
+				.toList();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public BookingResponse findBookingById(UUID guestId, UUID bookingId) {
+		Booking booking = bookingRepository.findById(bookingId)
+				.orElseThrow(() -> new ResourceNotFoundException("Booking not found: " + bookingId));
+		if (!booking.getGuest().getId().equals(guestId)) {
+			throw new ResourceNotFoundException("Booking not found: " + bookingId);
+		}
+		return bookingMapper.toResponse(booking);
+	}
+
+	@Override
+	@Transactional
+	public BookingResponse createBooking(UUID guestId, CreateGuestBookingRequest request) {
+		int nights = validateStay(request.checkIn(), request.checkOut(), request.adults(), request.children());
+
+		// Bloquea el tipo de habitación para serializar reservas concurrentes
+		RoomType roomType = getPublicRoomType(
+				roomTypeRepository.findByIdForUpdate(request.roomTypeId()), request.roomTypeId());
+		if (guestCount(request.adults(), request.children()) > roomType.getCapacity()) {
+			throw new BadRequestException("Guest count exceeds room type capacity");
+		}
+
+		List<UUID> roomTypeIds = List.of(roomType.getId());
+		Rate rate = roomTypeAvailability.ratesCoveringStay(roomTypeIds, request.checkIn(), request.checkOut())
+				.get(roomType.getId());
+		if (rate == null) {
+			throw new BadRequestException("No rate available for the requested stay");
+		}
+		if (nights < rate.getMinimumNights()) {
+			throw new BadRequestException("Stay does not meet the rate minimum nights");
+		}
+		int available = roomTypeAvailability.availableRooms(roomTypeIds, request.checkIn(), request.checkOut())
+				.getOrDefault(roomType.getId(), 0);
+		if (available <= 0) {
+			throw new ConflictException(NO_AVAILABILITY_MESSAGE);
+		}
+
+		return bookingService.create(new CreateBookingRequest(
+				guestId,
+				roomType.getId(),
+				null,
+				rate.getId(),
+				request.checkIn(),
+				request.checkOut(),
+				request.adults(),
+				request.children(),
+				trimToNull(request.notes())
+		));
+	}
+
+	private int validateStay(LocalDate checkIn, LocalDate checkOut, Integer adults, Integer children) {
+		if (checkIn == null) {
+			throw new BadRequestException("Check-in date is required");
+		}
+		if (checkOut == null) {
+			throw new BadRequestException("Check-out date is required");
+		}
+		if (adults == null) {
+			throw new BadRequestException("Adults is required");
+		}
+		if (adults < 1) {
+			throw new BadRequestException("Adults must be greater than zero");
+		}
+		if (children == null || children < 0) {
+			throw new BadRequestException("Children must not be negative");
+		}
+		if (!checkIn.isBefore(checkOut)) {
+			throw new BadRequestException("Check-in date must be before check-out date");
+		}
+		if (checkIn.isBefore(today())) {
+			throw new BadRequestException("Check-in date cannot be in the past");
+		}
+		long nights = ChronoUnit.DAYS.between(checkIn, checkOut);
+		if (nights > MAX_STAY_NIGHTS) {
+			throw new BadRequestException("Stay cannot exceed " + MAX_STAY_NIGHTS + " nights");
+		}
+		return (int) nights;
+	}
+
+	private static long guestCount(int adults, int children) {
+		return (long) adults + children;
+	}
+
+	private static RoomType getPublicRoomType(java.util.Optional<RoomType> roomType, UUID roomTypeId) {
+		return roomType
+				.filter(found -> Boolean.TRUE.equals(found.getActive()))
+				.orElseThrow(() -> new BadRequestException("Room type not available: " + roomTypeId));
+	}
+
+	private LocalDate today() {
+		return LocalDate.now(clock.withZone(hotelZoneId));
+	}
+
+	private static String trimToNull(String value) {
+		if (value == null) {
+			return null;
+		}
+		String trimmed = value.trim();
+		return trimmed.isEmpty() ? null : trimmed;
+	}
+
 
 	private Booking getOwnBooking(UUID bookingId) {
 		Booking booking = bookingRepository.findById(bookingId)

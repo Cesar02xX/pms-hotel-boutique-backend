@@ -3,9 +3,11 @@ package com.aurora.pms.service;
 import java.util.List;
 import java.util.UUID;
 
+import com.aurora.pms.dto.request.CreateGuestBookingRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
+import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
 import com.aurora.pms.dto.response.GuestLoginResponse;
@@ -44,4 +46,12 @@ public interface GuestAccessService {
 	ConciergeRequestResponse findConciergeRequest(UUID bookingId, UUID requestId);
 
 	ConciergeRequestResponse cancelConciergeRequest(UUID bookingId, UUID requestId);
+
+	List<BookingResponse> findBookings(UUID guestId);
+
+	BookingResponse findBookingById(UUID guestId, UUID bookingId);
+
+	BookingResponse createBooking(UUID guestId, CreateGuestBookingRequest request);
 }
+
+
