@@ -47,3 +47,7 @@ databaseChangeLog:
       file: db/changelog/migrations/023-guest-portal-ui-permissions.sql
   - include:
       file: db/changelog/migrations/024-guest-credentials.sql
+  - include:
+      file: db/changelog/migrations/025-housekeeping-checklists.sql
+  - include:
+      file: db/changelog/migrations/026-housekeeping-turnover-checklists.sql

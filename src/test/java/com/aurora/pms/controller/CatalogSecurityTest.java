@@ -55,6 +55,9 @@ class CatalogSecurityTest extends AbstractCatalogApiTest {
 				Arguments.of(HttpMethod.POST, "/api/v1/housekeeping/rooms/" + id + "/start"),
 				Arguments.of(HttpMethod.POST, "/api/v1/housekeeping/rooms/" + id + "/complete"),
 				Arguments.of(HttpMethod.POST, "/api/v1/housekeeping/rooms/" + id + "/inspect"),
+				Arguments.of(HttpMethod.GET, "/api/v1/housekeeping/checklists"),
+				Arguments.of(HttpMethod.POST, "/api/v1/housekeeping/checklists"),
+				Arguments.of(HttpMethod.PUT, "/api/v1/housekeeping/checklists/" + id),
 				Arguments.of(HttpMethod.GET, "/api/v1/room-service/products"),
 				Arguments.of(HttpMethod.GET, "/api/v1/room-service/orders"),
 				Arguments.of(HttpMethod.GET, "/api/v1/room-service/orders/" + id),
@@ -114,6 +117,7 @@ class CatalogSecurityTest extends AbstractCatalogApiTest {
 				Arguments.of(HttpMethod.GET, "/api/v1/guests", SecurityPermissions.GUESTS_READ),
 				Arguments.of(HttpMethod.GET, "/api/v1/bookings", SecurityPermissions.BOOKINGS_READ),
 				Arguments.of(HttpMethod.GET, "/api/v1/housekeeping/rooms", SecurityPermissions.HOUSEKEEPING_READ),
+				Arguments.of(HttpMethod.GET, "/api/v1/housekeeping/checklists", SecurityPermissions.HOUSEKEEPING_READ),
 				Arguments.of(HttpMethod.GET, "/api/v1/room-service/products", SecurityPermissions.ROOM_SERVICE_READ),
 				Arguments.of(HttpMethod.GET, "/api/v1/room-service/orders", SecurityPermissions.ROOM_SERVICE_READ)
 		);
