@@ -1,6 +1,6 @@
 --liquibase formatted sql
 
---changeset aurora:022-housekeeping-turnover-checklists
+--changeset aurora:026-housekeeping-turnover-checklists
 ALTER TABLE housekeeping_checklists
     DROP CONSTRAINT IF EXISTS housekeeping_checklists_service_request_id_key;
 

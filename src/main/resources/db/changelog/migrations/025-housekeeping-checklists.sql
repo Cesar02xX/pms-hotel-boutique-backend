@@ -1,6 +1,6 @@
 --liquibase formatted sql
 
---changeset aurora:021-housekeeping-checklists
+--changeset aurora:025-housekeeping-checklists
 CREATE TABLE housekeeping_checklists (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     service_request_id UUID NOT NULL UNIQUE REFERENCES service_requests(id),

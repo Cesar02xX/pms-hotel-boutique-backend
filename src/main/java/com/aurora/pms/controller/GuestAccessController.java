@@ -18,11 +18,15 @@ import org.springframework.web.bind.annotation.RestController;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLinkRequest;
+import com.aurora.pms.dto.request.GuestLoginRequest;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.AmenityResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
+import com.aurora.pms.dto.response.GuestLoginResponse;
 import com.aurora.pms.dto.response.GuestNotificationResponse;
 import com.aurora.pms.dto.response.GuestStayResponse;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
@@ -56,7 +60,17 @@ public class GuestAccessController {
 		this.roomServiceOrderService = roomServiceOrderService;
 	}
 
+	@PostMapping("/auth/login")
+	@Operation(summary = "Authenticate a guest with email and password and issue an access token")
+	@SecurityRequirements
+	public ResponseEntity<GuestLoginResponse> login(@Valid @RequestBody GuestLoginRequest request) {
+		return ResponseEntity.ok(guestAccessService.login(request));
+	}
+
+	@Deprecated
 	@PostMapping("/auth/link")
+	@Operation(summary = "Login by link code (deprecated: use POST /api/v1/guest/auth/login)", deprecated = true)
+	@SecurityRequirements
 	public ResponseEntity<GuestLinkResponse> link(@Valid @RequestBody GuestLinkRequest request) {
 		return ResponseEntity.ok(guestAccessService.link(request.code()));
 	}

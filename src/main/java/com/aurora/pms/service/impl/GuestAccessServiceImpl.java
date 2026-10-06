@@ -8,8 +8,10 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,9 +19,11 @@ import com.aurora.pms.dto.request.CreateConciergeRequestRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
+import com.aurora.pms.dto.request.GuestLoginRequest;
 import com.aurora.pms.dto.request.UpdateConciergeRequestStatusRequest;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
+import com.aurora.pms.dto.response.GuestLoginResponse;
 import com.aurora.pms.dto.response.GuestStayResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
@@ -27,6 +31,7 @@ import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.GuestAccount;
+import com.aurora.pms.model.GuestCredential;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.enums.BookingStatus;
@@ -35,6 +40,7 @@ import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestAccountRepository;
+import com.aurora.pms.repository.GuestCredentialRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.security.GuestPrincipal;
 import com.aurora.pms.security.JwtService;
@@ -54,31 +60,77 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	private final BookingRepository bookingRepository;
 	private final GuestAccountRepository guestAccountRepository;
+	private final GuestCredentialRepository guestCredentialRepository;
 	private final ServiceRequestRepository serviceRequestRepository;
 	private final RoomServiceOrderService roomServiceOrderService;
 	private final HousekeepingService housekeepingService;
 	private final ConciergeRequestService conciergeRequestService;
 	private final JwtService jwtService;
 	private final GuestNotificationService guestNotificationService;
+	private final PasswordEncoder passwordEncoder;
 
 	public GuestAccessServiceImpl(
 			BookingRepository bookingRepository,
 			GuestAccountRepository guestAccountRepository,
+			GuestCredentialRepository guestCredentialRepository,
 			ServiceRequestRepository serviceRequestRepository,
 			RoomServiceOrderService roomServiceOrderService,
 			HousekeepingService housekeepingService,
 			ConciergeRequestService conciergeRequestService,
 			JwtService jwtService,
-			GuestNotificationService guestNotificationService
+			GuestNotificationService guestNotificationService,
+			PasswordEncoder passwordEncoder
 	) {
 		this.bookingRepository = bookingRepository;
 		this.guestAccountRepository = guestAccountRepository;
+		this.guestCredentialRepository = guestCredentialRepository;
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.roomServiceOrderService = roomServiceOrderService;
 		this.housekeepingService = housekeepingService;
 		this.conciergeRequestService = conciergeRequestService;
 		this.jwtService = jwtService;
 		this.guestNotificationService = guestNotificationService;
+		this.passwordEncoder = passwordEncoder;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public GuestLoginResponse login(GuestLoginRequest request) {
+		String email = normalizeEmail(request.email());
+		GuestCredential credential = guestCredentialRepository.findByEmailIgnoreCase(email)
+				.orElseThrow(() -> new BadCredentialsException("Invalid email or password"));
+
+		if (!Boolean.TRUE.equals(credential.getActive())
+				|| !passwordEncoder.matches(request.password(), credential.getPasswordHash())) {
+			throw new BadCredentialsException("Invalid email or password");
+		}
+
+		List<Booking> checkedInBookings = bookingRepository.findByGuestIdAndStatusOrderByCheckInDesc(
+				credential.getGuest().getId(),
+				BookingStatus.checked_in
+		);
+
+		if (checkedInBookings.isEmpty()) {
+			throw new BadRequestException("Guest has no active stay");
+		}
+
+		LocalDate today = LocalDate.now(HOTEL_ZONE);
+		Booking activeBooking = checkedInBookings.stream()
+				.filter(b -> !today.isBefore(b.getCheckIn()) && today.isBefore(b.getCheckOut()))
+				.findFirst()
+				.orElseThrow(() -> new BadRequestException("Guest stay is expired or not yet active"));
+
+		GuestPrincipal principal = new GuestPrincipal(
+				activeBooking.getId(),
+				credential.getGuest().getId(),
+				activeBooking.getGuestLinkCode()
+		);
+
+		return new GuestLoginResponse(
+				jwtService.generateGuestAccessToken(principal),
+				"Bearer",
+				jwtService.getAccessExpirationSeconds()
+		);
 	}
 
 	@Override
@@ -259,5 +311,9 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	private static String normalizeCode(String code) {
 		return code == null ? "" : code.trim().toUpperCase();
+	}
+
+	private static String normalizeEmail(String email) {
+		return email == null ? "" : email.trim().toLowerCase();
 	}
 }

@@ -1,0 +1,171 @@
+name: Backend Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: backend-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verificación (build, tests, SonarQube)
+    uses: ./.github/workflows/backend-ci.yml
+    secrets: inherit
+
+  release:
+    name: Tag, GitHub Release y .jar
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Calcular versión
+        id: version
+        run: |
+          chmod +x mvnw
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            pom_version=$(./mvnw -q -ntp help:evaluate -Dexpression=project.version -DforceStdout)
+            base="${pom_version%-SNAPSHOT}"
+            IFS='.' read -r major minor patch <<< "$base"
+            major="${major:-0}"; minor="${minor:-0}"; patch="${patch:-0}"
+            # Si el tag ya existe, se incrementa el patch hasta encontrar uno libre.
+            while git rev-parse -q --verify "refs/tags/v${major}.${minor}.${patch}" >/dev/null; do
+              patch=$((patch + 1))
+            done
+            version="${major}.${minor}.${patch}"
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+          echo "Versión a publicar: v${version}"
+
+      - name: Empaquetar .jar versionado
+        run: |
+          ./mvnw -B -ntp versions:set -DnewVersion="${{ steps.version.outputs.version }}" -DgenerateBackupPoms=false
+          ./mvnw -B -ntp package -DskipTests
+          cp "target/pms-backend-${{ steps.version.outputs.version }}.jar" "pms-backend-${{ steps.version.outputs.version }}.jar"
+
+      - name: Crear tag y GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          JAR: pms-backend-${{ steps.version.outputs.version }}.jar
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "El release $TAG ya existe; se actualiza el .jar adjunto."
+            gh release upload "$TAG" "$JAR" --clobber
+          else
+            gh release create "$TAG" "$JAR" \
+              --target "$GITHUB_SHA" \
+              --title "Backend $TAG" \
+              --generate-notes
+          fi
+
+      - name: Guardar .jar como artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: pms-backend-${{ steps.version.outputs.version }}
+          path: pms-backend-${{ steps.version.outputs.version }}.jar
+
+  docker:
+    name: Imagen Docker en GHCR
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Nombre de imagen
+        id: meta
+        run: |
+          # GHCR exige nombres en minúsculas (el owner Cesar02xX tiene mayúsculas).
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login en GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build y push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ needs.release.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ needs.release.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy (placeholder)
+    needs: [release, docker]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      IMAGE: ${{ needs.docker.outputs.image }}:${{ needs.release.outputs.version }}
+    steps:
+      - name: Verificar secrets de deploy
+        id: check
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_KEY" ]; then
+            echo "::notice title=Deploy omitido::DEPLOY_HOST o DEPLOY_KEY no están configurados. Imagen lista: $IMAGE"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy por SSH (docker compose pull/up)
+        if: steps.check.outputs.enabled == 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=accept-new \
+            "${DEPLOY_USER:-deploy}@${DEPLOY_HOST}" \
+            "cd '${DEPLOY_PATH:-/opt/pms-backend}' && BACKEND_IMAGE='${IMAGE}' docker compose pull && BACKEND_IMAGE='${IMAGE}' docker compose up -d"
