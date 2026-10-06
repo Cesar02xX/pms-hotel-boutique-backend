@@ -15,10 +15,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.aurora.pms.dto.request.CreateGuestBookingRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLinkRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
+import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.AmenityResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
@@ -79,6 +81,32 @@ public class GuestAccessController {
 	public ResponseEntity<GuestStayResponse> stay(@AuthenticationPrincipal GuestPrincipal guest) {
 		return ResponseEntity.ok(guestAccessService.getStay(guest.bookingId()));
 	}
+
+	@GetMapping("/bookings")
+	@Operation(summary = "List all bookings belonging to the authenticated guest")
+	public ResponseEntity<List<BookingResponse>> bookings(@AuthenticationPrincipal GuestPrincipal guest) {
+		return ResponseEntity.ok(guestAccessService.findBookings(guest.guestId()));
+	}
+
+	@GetMapping("/bookings/{bookingId}")
+	@Operation(summary = "Get booking details by id for the authenticated guest")
+	public ResponseEntity<BookingResponse> booking(
+			@AuthenticationPrincipal GuestPrincipal guest,
+			@PathVariable UUID bookingId
+	) {
+		return ResponseEntity.ok(guestAccessService.findBookingById(guest.guestId(), bookingId));
+	}
+
+	@PostMapping("/bookings")
+	@Operation(summary = "Create a new booking for the authenticated guest")
+	public ResponseEntity<BookingResponse> createBooking(
+			@AuthenticationPrincipal GuestPrincipal guest,
+			@Valid @RequestBody CreateGuestBookingRequest request
+	) {
+		return ResponseEntity.status(HttpStatus.CREATED)
+				.body(guestAccessService.createBooking(guest.guestId(), request));
+	}
+
 
 	@GetMapping("/amenities")
 	public ResponseEntity<List<AmenityResponse>> amenities() {
