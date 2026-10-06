@@ -16,14 +16,16 @@ Cada cuenta usa una contrasena simple igual a su rol para facilitar el acceso du
 
 ## Accesos de huesped
 
-Los huespedes no usan `/api/v1/auth/login`; entran por `POST /api/v1/guest/auth/link` con codigo de enlace.
+El flujo principal de autenticación para huéspedes es `POST /api/v1/guest/auth/login` con correo y contraseña:
 
-| Huesped | Reserva | Codigo de huesped |
-| --- | --- | --- |
-| Ana Morales | `AUR-DEMO-001` | `HUESPED-DEMO-UNO` |
-| Carlos Reyes | `AUR-DEMO-002` | `HUESPED-DEMO-DOS` |
+| Huesped | Email | Contrasena | Reserva | Codigo de enlace (deprecado) |
+| --- | --- | --- | --- | --- |
+| Ana Morales | `ana.demo@aurora.test` | `huesped1` | `AUR-DEMO-001` | `HUESPED-DEMO-UNO` |
+| Carlos Reyes | `carlos.demo@aurora.test` | `huesped2` | `AUR-DEMO-002` | `HUESPED-DEMO-DOS` |
 
-Ambas reservas estan en estado `checked_in`, usan UUID reales y tienen folio abierto.
+Ambas reservas están en estado `checked_in`, usan UUID reales y tienen folio abierto.
+
+> **Nota:** El acceso por código (`POST /api/v1/guest/auth/link`) se mantiene temporalmente por compatibilidad pero se encuentra **deprecado**.
 
 ## Datos incluidos
 

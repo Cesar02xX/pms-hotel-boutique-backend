@@ -45,3 +45,5 @@ databaseChangeLog:
       file: db/changelog/migrations/022-remove-legacy-staff-users.sql
   - include:
       file: db/changelog/migrations/023-guest-portal-ui-permissions.sql
+  - include:
+      file: db/changelog/migrations/024-guest-credentials.sql

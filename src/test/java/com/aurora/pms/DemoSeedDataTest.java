@@ -58,6 +58,16 @@ class DemoSeedDataTest {
 				  and ga.status = 'open'
 				""", Integer.class);
 		assertThat(guestLinks).isEqualTo(2);
+
+		Integer guestCredentials = jdbcTemplate.queryForObject("""
+				select count(*)
+				from guest_credentials gc
+				join guests g on g.id = gc.guest_id
+				where gc.email in ('ana.demo@aurora.test', 'carlos.demo@aurora.test')
+				  and gc.active = true
+				  and gc.password_hash like '$2%'
+				""", Integer.class);
+		assertThat(guestCredentials).isEqualTo(2);
 	}
 
 	@Test
