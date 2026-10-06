@@ -620,6 +620,42 @@ class PaymentDepositControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void applyDepositRequiresDepositsWritePermission() throws Exception {
+		Booking booking = createMoneyBooking();
+		openFolio(booking);
+		postCharge(booking, 10000L);
+		String firstDepositId = createDeposit(booking, 4000L);
+		String secondDepositId = createDeposit(booking, 1000L);
+		String applyPath = "/api/v1/bookings/{bookingId}/deposits/{depositId}/apply";
+
+		mockMvc.perform(post(applyPath, booking.getId(), firstDepositId))
+				.andExpect(status().isUnauthorized());
+
+		// Autenticado, con permisos financieros cercanos pero sin deposits.write.
+		mockMvc.perform(post(applyPath, booking.getId(), firstDepositId)
+						.with(userWithPermissions("no.deposits.write@aurora.test",
+								SecurityPermissions.DEPOSITS_READ, SecurityPermissions.PAYMENTS_WRITE,
+								SecurityPermissions.FOLIOS_WRITE)))
+				.andExpect(status().isForbidden())
+				.andExpect(jsonPath("$.status").value(403));
+		assertThat(depositRepository.findById(UUID.fromString(firstDepositId)))
+				.hasValueSatisfying(deposit -> assertThat(deposit.getStatus()).isEqualTo(DepositStatus.held));
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(10000L);
+
+		mockMvc.perform(post(applyPath, booking.getId(), firstDepositId)
+						.with(userWithPermissions("deposits.writer@aurora.test", SecurityPermissions.DEPOSITS_WRITE)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("applied"));
+
+		mockMvc.perform(post(applyPath, booking.getId(), secondDepositId)
+						.with(user("admin.only@aurora.test").authorities(() -> "ROLE_ADMIN")))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("applied"));
+
+		assertThat(currentAccount(booking).getBalanceCents()).isEqualTo(5000L);
+	}
+
+	@Test
 	void applyRefundedDepositReturnsBadRequest() throws Exception {
 		Booking booking = createMoneyBooking();
 		openFolio(booking);
