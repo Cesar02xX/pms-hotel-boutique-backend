@@ -236,7 +236,11 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		product.setDescription(trimToNull(request.description()));
 		product.setCategory(request.category());
 		product.setPriceCents(request.priceCents());
-		product.setReorderLevel(request.reorderLevel() == null ? 0 : request.reorderLevel());
+		// Sin reorderLevel en el request se conserva el actual (0 en un producto nuevo):
+		// la respuesta no lo expone, así que un cliente que edita no puede reenviarlo (#84).
+		if (request.reorderLevel() != null) {
+			product.setReorderLevel(request.reorderLevel());
+		}
 		product.setActive(request.active() == null || request.active());
 		product.setUpdatedAt(now);
 	}
