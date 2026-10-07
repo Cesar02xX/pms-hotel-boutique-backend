@@ -44,6 +44,13 @@ public class ServiceRequest {
 	@JoinColumn(name = "guest_id")
 	private Guest guest;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "inventory_item_id")
+	private InventoryItem inventoryItem;
+
+	@Column(name = "inventory_quantity")
+	private Integer inventoryQuantity;
+
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
 	private ServiceRequestType type;

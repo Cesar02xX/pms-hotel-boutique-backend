@@ -120,6 +120,29 @@ class SecurityRoutesTest {
 				.andExpect(jsonPath("$.status").value("protected"));
 	}
 
+	@Test
+	void authenticatedUserCanReadOnlyTheirEffectivePermissionKeys() throws Exception {
+		createProtectedRouteUser();
+		UserDetails userDetails = org.springframework.security.core.userdetails.User
+				.withUsername(testUser.getEmail())
+				.password("password")
+				.authorities("ROLE_AUTH_TEST", testPermission.getKey())
+				.build();
+		String accessToken = jwtService.generateAccessToken(userDetails);
+
+		mockMvc.perform(get("/api/v1/auth/permissions")
+					.header("Authorization", "Bearer " + accessToken))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.permissions.length()").value(1))
+				.andExpect(jsonPath("$.permissions[0]").value(testPermission.getKey()));
+	}
+
+	@Test
+	void currentPermissionKeysRequireAuthentication() throws Exception {
+		mockMvc.perform(get("/api/v1/auth/permissions"))
+				.andExpect(status().isUnauthorized());
+	}
+
 	private void createProtectedRouteUser() {
 		String suffix = UUID.randomUUID().toString();
 		OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);

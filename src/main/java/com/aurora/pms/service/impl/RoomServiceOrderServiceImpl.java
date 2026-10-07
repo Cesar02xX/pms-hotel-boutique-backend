@@ -22,6 +22,7 @@ import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.RoomServiceMapper;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.InventoryItem;
 import com.aurora.pms.model.Order;
 import com.aurora.pms.model.OrderItem;
 import com.aurora.pms.model.Product;
@@ -33,6 +34,7 @@ import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.ChargeRepository;
+import com.aurora.pms.repository.InventoryItemRepository;
 import com.aurora.pms.repository.OrderItemRepository;
 import com.aurora.pms.repository.OrderRepository;
 import com.aurora.pms.repository.ProductRepository;
@@ -52,6 +54,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	);
 
 	private final ProductRepository productRepository;
+	private final InventoryItemRepository inventoryItemRepository;
 	private final BookingRepository bookingRepository;
 	private final OrderRepository orderRepository;
 	private final OrderItemRepository orderItemRepository;
@@ -65,6 +68,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 
 	public RoomServiceOrderServiceImpl(
 			ProductRepository productRepository,
+			InventoryItemRepository inventoryItemRepository,
 			BookingRepository bookingRepository,
 			OrderRepository orderRepository,
 			OrderItemRepository orderItemRepository,
@@ -77,6 +81,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			MediaImageService mediaImageService
 	) {
 		this.productRepository = productRepository;
+		this.inventoryItemRepository = inventoryItemRepository;
 		this.bookingRepository = bookingRepository;
 		this.orderRepository = orderRepository;
 		this.orderItemRepository = orderItemRepository;
@@ -100,12 +105,22 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 				MediaTarget.product,
 				products.stream().map(Product::getId).toList()
 		);
+		List<UUID> productIds = products.stream().map(Product::getId).toList();
+		Map<UUID, List<InventoryItem>> inventoryByProduct = productIds.isEmpty()
+				? Map.of()
+				: inventoryItemRepository.findActiveByProductIdIn(productIds).stream()
+						.collect(Collectors.groupingBy(item -> item.getProduct().getId()));
 		return products.stream()
 				.map(product -> roomServiceMapper.toProductResponse(
 						product,
+						stockQuantity(inventoryByProduct.get(product.getId())),
 						images.getOrDefault(product.getId(), List.of())
 				))
 				.toList();
+	}
+
+	private static int stockQuantity(List<InventoryItem> items) {
+		return items != null && items.size() == 1 ? items.get(0).getCurrentQuantity() : 0;
 	}
 
 	@Override

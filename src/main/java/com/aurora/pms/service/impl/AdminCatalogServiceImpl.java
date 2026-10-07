@@ -132,9 +132,15 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 				MediaTarget.product,
 				products.stream().map(Product::getId).toList()
 		);
+		List<UUID> productIds = products.stream().map(Product::getId).toList();
+		Map<UUID, List<InventoryItem>> inventoryByProduct = productIds.isEmpty()
+				? Map.of()
+				: inventoryItemRepository.findActiveByProductIdIn(productIds).stream()
+						.collect(java.util.stream.Collectors.groupingBy(item -> item.getProduct().getId()));
 		return products.stream()
 				.map(product -> roomServiceMapper.toProductResponse(
 						product,
+						stockQuantity(inventoryByProduct.get(product.getId())),
 						images.getOrDefault(product.getId(), List.of())
 				))
 				.toList();
@@ -175,7 +181,9 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		OffsetDateTime now = OffsetDateTime.now();
 		item.setCreatedAt(now);
 		applyInventoryItem(item, request, now);
-		return inventoryMapper.toResponse(inventoryItemRepository.save(item));
+		InventoryItem saved = inventoryItemRepository.save(item);
+		mediaImageService.replaceImages(MediaTarget.inventory_item, saved.getId(), request.images());
+		return toInventoryItemResponse(saved);
 	}
 
 	@Override
@@ -184,7 +192,9 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		InventoryItem item = inventoryItemRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Inventory item not found: " + id));
 		applyInventoryItem(item, request, OffsetDateTime.now());
-		return inventoryMapper.toResponse(inventoryItemRepository.save(item));
+		InventoryItem saved = inventoryItemRepository.save(item);
+		mediaImageService.replaceImages(MediaTarget.inventory_item, id, request.images());
+		return toInventoryItemResponse(saved);
 	}
 
 	@Override
@@ -246,7 +256,11 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 	}
 
 	private void applyInventoryItem(InventoryItem item, UpsertInventoryItemRequest request, OffsetDateTime now) {
-		item.setSku(request.sku().trim().toUpperCase());
+		if (request.sku() != null && !request.sku().isBlank()) {
+			item.setSku(request.sku().trim().toUpperCase());
+		} else if (item.getSku() == null) {
+			item.setSku("INV-" + UUID.randomUUID().toString().replace("-", "").toUpperCase());
+		}
 		item.setName(request.name().trim());
 		item.setDescription(trimToNull(request.description()));
 		item.setCategory(request.category().trim());
@@ -294,11 +308,24 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 				amenity.getCreatedAt(), amenity.getUpdatedAt(), List.copyOf(images));
 	}
 
+	private InventoryItemResponse toInventoryItemResponse(InventoryItem item) {
+		return inventoryMapper.toResponse(
+				item,
+				mediaImageService.findImages(MediaTarget.inventory_item, item.getId())
+		);
+	}
+
 	private RoomServiceProductResponse toProductResponse(Product product) {
+		List<InventoryItem> inventoryItems = inventoryItemRepository.findActiveByProductIdIn(List.of(product.getId()));
 		return roomServiceMapper.toProductResponse(
 				product,
+				stockQuantity(inventoryItems),
 				mediaImageService.findImages(MediaTarget.product, product.getId())
 		);
+	}
+
+	private static int stockQuantity(List<InventoryItem> items) {
+		return items != null && items.size() == 1 ? items.get(0).getCurrentQuantity() : 0;
 	}
 
 	private PromotionResponse toPromotionResponse(Promotion promotion) {

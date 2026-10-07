@@ -33,7 +33,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 @RestController
 @RequestMapping("/api/v1/media")
-@Tag(name = "Media", description = "Carga de imágenes para tipos de habitación, productos y amenidades")
+@Tag(name = "Media", description = "Carga de imágenes para catálogos e inventario")
 @ApiResponses({
 		@ApiResponse(responseCode = "401", description = "Missing or invalid token",
 				content = @Content(schema = @Schema(implementation = ApiErrorResponse.class))),
@@ -51,7 +51,7 @@ public class MediaController {
 	@PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	@Operation(
 			summary = "Upload a catalog image",
-			description = "Multipart with 'file' (JPEG, PNG or WebP) and 'target' (room_type, product or amenity). "
+			description = "Multipart with 'file' (JPEG, PNG or WebP) and a supported catalog target. "
 					+ "The image stays pending until its id is sent in the images list of a create/update of "
 					+ "that target; pending images are deleted after the configured TTL."
 	)
@@ -71,7 +71,7 @@ public class MediaController {
 			@RequestParam(name = "target", required = false) MediaTarget target
 	) throws IOException {
 		if (target == null) {
-			throw new BadRequestException("Image target is required: room_type, product or amenity");
+			throw new BadRequestException("Image target is required");
 		}
 		return ResponseEntity.status(HttpStatus.CREATED).body(mediaImageService.upload(target, file.getBytes()));
 	}

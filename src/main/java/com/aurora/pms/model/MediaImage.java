@@ -46,6 +46,9 @@ public class MediaImage {
 	@Column(name = "amenity_id")
 	private UUID amenityId;
 
+	@Column(name = "inventory_item_id")
+	private UUID inventoryItemId;
+
 	private Integer position;
 
 	@Column(name = "is_primary", nullable = false)
@@ -86,6 +89,7 @@ public class MediaImage {
 			case room_type -> roomTypeId;
 			case product -> productId;
 			case amenity -> amenityId;
+			case inventory_item -> inventoryItemId;
 		};
 	}
 
@@ -98,6 +102,7 @@ public class MediaImage {
 		roomTypeId = target == MediaTarget.room_type ? ownerId : null;
 		productId = target == MediaTarget.product ? ownerId : null;
 		amenityId = target == MediaTarget.amenity ? ownerId : null;
+		inventoryItemId = target == MediaTarget.inventory_item ? ownerId : null;
 		if (ownerId == null) {
 			position = null;
 			primary = false;

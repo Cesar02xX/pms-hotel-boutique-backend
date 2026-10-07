@@ -21,10 +21,12 @@ import com.aurora.pms.model.InventoryMovement;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.InventoryMovementReason;
 import com.aurora.pms.model.enums.InventoryMovementType;
+import com.aurora.pms.model.enums.MediaTarget;
 import com.aurora.pms.repository.InventoryItemRepository;
 import com.aurora.pms.repository.InventoryMovementRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.InventoryService;
+import com.aurora.pms.service.MediaImageService;
 
 /**
  * Existencias sobre items ya creados. No toca Product.stockQuantity ni se
@@ -51,19 +53,22 @@ public class InventoryServiceImpl implements InventoryService {
 	private final UserRepository userRepository;
 	private final InventoryMapper inventoryMapper;
 	private final InventoryStockLedger stockLedger;
+	private final MediaImageService mediaImageService;
 
 	public InventoryServiceImpl(
 			InventoryItemRepository inventoryItemRepository,
 			InventoryMovementRepository inventoryMovementRepository,
 			UserRepository userRepository,
 			InventoryMapper inventoryMapper,
-			InventoryStockLedger stockLedger
+			InventoryStockLedger stockLedger,
+			MediaImageService mediaImageService
 	) {
 		this.inventoryItemRepository = inventoryItemRepository;
 		this.inventoryMovementRepository = inventoryMovementRepository;
 		this.userRepository = userRepository;
 		this.inventoryMapper = inventoryMapper;
 		this.stockLedger = stockLedger;
+		this.mediaImageService = mediaImageService;
 	}
 
 	@Override
@@ -72,8 +77,13 @@ public class InventoryServiceImpl implements InventoryService {
 		String normalizedCategory = category == null || category.isBlank()
 				? null
 				: category.trim().toLowerCase(Locale.ROOT);
-		return inventoryItemRepository.search(active, normalizedCategory, lowStock).stream()
-				.map(inventoryMapper::toResponse)
+		List<InventoryItem> items = inventoryItemRepository.search(active, normalizedCategory, lowStock);
+		var images = mediaImageService.findImages(
+				MediaTarget.inventory_item,
+				items.stream().map(InventoryItem::getId).toList()
+		);
+		return items.stream()
+				.map(item -> inventoryMapper.toResponse(item, images.getOrDefault(item.getId(), List.of())))
 				.toList();
 	}
 
@@ -82,7 +92,10 @@ public class InventoryServiceImpl implements InventoryService {
 	public InventoryItemResponse findItem(UUID itemId) {
 		InventoryItem item = inventoryItemRepository.findById(itemId)
 				.orElseThrow(() -> notFound(itemId));
-		return inventoryMapper.toResponse(item);
+		return inventoryMapper.toResponse(
+				item,
+				mediaImageService.findImages(MediaTarget.inventory_item, item.getId())
+		);
 	}
 
 	@Override

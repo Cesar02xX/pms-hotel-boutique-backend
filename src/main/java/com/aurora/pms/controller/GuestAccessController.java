@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.aurora.pms.dto.request.CreateGuestBookingRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
+import com.aurora.pms.dto.request.CreateGuestHousekeepingItemRequest;
 import com.aurora.pms.dto.request.GuestLinkRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
 import com.aurora.pms.dto.response.BookingResponse;
@@ -32,12 +33,14 @@ import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
+import com.aurora.pms.dto.response.GuestHousekeepingItemResponse;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.security.GuestPrincipal;
 import com.aurora.pms.service.GuestAccessService;
 import com.aurora.pms.service.AdminCatalogService;
 import com.aurora.pms.service.GuestNotificationService;
 import com.aurora.pms.service.RoomServiceOrderService;
+import com.aurora.pms.service.InventoryService;
 
 import jakarta.validation.Valid;
 
@@ -49,17 +52,20 @@ public class GuestAccessController {
 	private final AdminCatalogService adminCatalogService;
 	private final GuestNotificationService notificationService;
 	private final RoomServiceOrderService roomServiceOrderService;
+	private final InventoryService inventoryService;
 
 	public GuestAccessController(
 			GuestAccessService guestAccessService,
 			AdminCatalogService adminCatalogService,
 			GuestNotificationService notificationService,
-			RoomServiceOrderService roomServiceOrderService
+			RoomServiceOrderService roomServiceOrderService,
+			InventoryService inventoryService
 	) {
 		this.guestAccessService = guestAccessService;
 		this.adminCatalogService = adminCatalogService;
 		this.notificationService = notificationService;
 		this.roomServiceOrderService = roomServiceOrderService;
+		this.inventoryService = inventoryService;
 	}
 
 	@PostMapping("/auth/login")
@@ -159,6 +165,25 @@ public class GuestAccessController {
 	) {
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(guestAccessService.createHousekeepingRequest(guest.bookingId(), request));
+	}
+
+	@GetMapping("/housekeeping/items")
+	public ResponseEntity<List<GuestHousekeepingItemResponse>> housekeepingItems() {
+		List<GuestHousekeepingItemResponse> items = inventoryService.findItems(true, "housekeeping", null)
+				.stream()
+				.map(item -> new GuestHousekeepingItemResponse(
+						item.id(), item.name(), item.description(), item.unit(), item.currentQuantity(), item.images()))
+				.toList();
+		return ResponseEntity.ok(items);
+	}
+
+	@PostMapping("/housekeeping/item-requests")
+	public ResponseEntity<StayoverCleaningResponse> createHousekeepingItemRequest(
+			@AuthenticationPrincipal GuestPrincipal guest,
+			@Valid @RequestBody CreateGuestHousekeepingItemRequest request
+	) {
+		return ResponseEntity.status(HttpStatus.CREATED)
+				.body(guestAccessService.createHousekeepingItemRequest(guest.bookingId(), request));
 	}
 
 	@GetMapping("/housekeeping/requests")

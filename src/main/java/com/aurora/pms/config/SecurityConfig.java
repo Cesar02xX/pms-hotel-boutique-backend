@@ -75,7 +75,8 @@ public class SecurityConfig {
 						.hasAnyAuthority(ADMIN_AUTHORITY,
 								SecurityPermissions.ROOM_TYPES_READ, SecurityPermissions.ROOM_TYPES_WRITE,
 								SecurityPermissions.ROOM_SERVICE_READ, SecurityPermissions.ROOM_SERVICE_WRITE,
-								SecurityPermissions.ROOMS_READ, SecurityPermissions.ROOMS_WRITE)
+								SecurityPermissions.ROOMS_READ, SecurityPermissions.ROOMS_WRITE,
+								SecurityPermissions.INVENTORY_READ, SecurityPermissions.INVENTORY_WRITE)
 						.requestMatchers("/api/v1/guest/**")
 						.hasAuthority(GUEST_AUTHORITY)
 						.requestMatchers(HttpMethod.GET, "/api/v1/admin/amenities/**")
@@ -190,6 +191,8 @@ public class SecurityConfig {
 						.requestMatchers(HttpMethod.PUT, "/api/v1/bookings/*")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.BOOKINGS_WRITE)
 						.requestMatchers(HttpMethod.GET, "/api/v1/housekeeping/rooms/**")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.HOUSEKEEPING_READ)
+						.requestMatchers(HttpMethod.GET, "/api/v1/housekeeping/inventory/items")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.HOUSEKEEPING_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/housekeeping/rooms/*/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.HOUSEKEEPING_WRITE)

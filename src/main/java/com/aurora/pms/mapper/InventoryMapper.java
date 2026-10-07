@@ -2,9 +2,12 @@ package com.aurora.pms.mapper;
 
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 import com.aurora.pms.dto.request.CreateInventoryMovementRequest;
 import com.aurora.pms.dto.response.InventoryItemResponse;
 import com.aurora.pms.dto.response.InventoryMovementResponse;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.model.InventoryItem;
 import com.aurora.pms.model.InventoryMovement;
 
@@ -12,6 +15,10 @@ import com.aurora.pms.model.InventoryMovement;
 public class InventoryMapper {
 
 	public InventoryItemResponse toResponse(InventoryItem item) {
+		return toResponse(item, List.of());
+	}
+
+	public InventoryItemResponse toResponse(InventoryItem item, List<MediaImageResponse> images) {
 		return new InventoryItemResponse(
 				item.getId(),
 				item.getSku(),
@@ -25,7 +32,8 @@ public class InventoryMapper {
 				item.getProduct() != null ? item.getProduct().getId() : null,
 				item.getActive(),
 				item.getCreatedAt(),
-				item.getUpdatedAt()
+				item.getUpdatedAt(),
+				List.copyOf(images)
 		);
 	}
 

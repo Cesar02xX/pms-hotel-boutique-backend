@@ -278,6 +278,7 @@ public class MediaImageServiceImpl implements MediaImageService {
 			case room_type -> mediaImageRepository.findByRoomTypeIdInOrderByPositionAsc(ownerIds);
 			case product -> mediaImageRepository.findByProductIdInOrderByPositionAsc(ownerIds);
 			case amenity -> mediaImageRepository.findByAmenityIdInOrderByPositionAsc(ownerIds);
+			case inventory_item -> mediaImageRepository.findByInventoryItemIdInOrderByPositionAsc(ownerIds);
 		};
 	}
 

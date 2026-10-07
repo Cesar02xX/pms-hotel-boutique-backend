@@ -14,6 +14,7 @@ public record RoomServiceProductResponse(
 		Long priceCents,
 		String currency,
 		Boolean active,
+		Integer stockQuantity,
 		List<MediaImageResponse> images
 ) {
 }

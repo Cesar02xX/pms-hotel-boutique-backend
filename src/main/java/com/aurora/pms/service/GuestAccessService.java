@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import com.aurora.pms.dto.request.CreateGuestBookingRequest;
+import com.aurora.pms.dto.request.CreateGuestHousekeepingItemRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
@@ -34,6 +35,8 @@ public interface GuestAccessService {
 	RoomServiceOrderResponse cancelRoomServiceOrder(UUID bookingId, UUID orderId);
 
 	StayoverCleaningResponse createHousekeepingRequest(UUID bookingId, CreateGuestServiceRequest request);
+
+	StayoverCleaningResponse createHousekeepingItemRequest(UUID bookingId, CreateGuestHousekeepingItemRequest request);
 
 	List<StayoverCleaningResponse> findHousekeepingRequests(UUID bookingId);
 
