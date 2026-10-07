@@ -7,5 +7,6 @@ package com.aurora.pms.model.enums;
 public enum MediaTarget {
 	room_type,
 	product,
-	amenity
+	amenity,
+	inventory_item
 }

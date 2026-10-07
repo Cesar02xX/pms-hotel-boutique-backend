@@ -26,6 +26,9 @@ public interface InventoryItemRepository extends JpaRepository<InventoryItem, UU
 	@Query("select i.id from InventoryItem i where i.product.id = :productId and i.active = true")
 	List<UUID> findActiveIdsByProductId(@Param("productId") UUID productId);
 
+	@Query("select i from InventoryItem i where i.product.id in :productIds and i.active = true")
+	List<InventoryItem> findActiveByProductIdIn(@Param("productIds") List<UUID> productIds);
+
 	/**
 	 * Filtros opcionales: un parámetro null no filtra. category se compara en
 	 * minúsculas (el servicio la normaliza). lowStock=true devuelve

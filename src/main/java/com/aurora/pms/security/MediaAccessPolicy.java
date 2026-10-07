@@ -25,13 +25,15 @@ public class MediaAccessPolicy {
 	private static final Map<MediaTarget, String> WRITE_PERMISSIONS = Map.of(
 			MediaTarget.room_type, SecurityPermissions.ROOM_TYPES_WRITE,
 			MediaTarget.product, SecurityPermissions.ROOM_SERVICE_WRITE,
-			MediaTarget.amenity, SecurityPermissions.ROOMS_WRITE
+			MediaTarget.amenity, SecurityPermissions.ROOMS_WRITE,
+			MediaTarget.inventory_item, SecurityPermissions.INVENTORY_WRITE
 	);
 
 	private static final Map<MediaTarget, String> READ_PERMISSIONS = Map.of(
 			MediaTarget.room_type, SecurityPermissions.ROOM_TYPES_READ,
 			MediaTarget.product, SecurityPermissions.ROOM_SERVICE_READ,
-			MediaTarget.amenity, SecurityPermissions.ROOMS_READ
+			MediaTarget.amenity, SecurityPermissions.ROOMS_READ,
+			MediaTarget.inventory_item, SecurityPermissions.INVENTORY_READ
 	);
 
 	public void requireWrite(MediaTarget target) {

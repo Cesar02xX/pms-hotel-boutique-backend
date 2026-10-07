@@ -175,7 +175,7 @@ class GuestAuthControllerTest extends AbstractCatalogApiTest {
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(loginBody(credential.getEmail(), PASSWORD)))
 				.andExpect(status().isBadRequest())
-				.andExpect(jsonPath("$.message", is("Guest stay is expired or not yet active")));
+				.andExpect(jsonPath("$.message", is("La estancia no está activa: ya venció o todavía no ha comenzado.")));
 	}
 
 	@Test

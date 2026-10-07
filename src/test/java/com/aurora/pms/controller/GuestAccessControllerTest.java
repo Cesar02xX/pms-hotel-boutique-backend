@@ -14,21 +14,29 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.time.LocalDate;
+import java.time.ZoneId;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.GuestNotification;
+import com.aurora.pms.model.InventoryItem;
 import com.aurora.pms.model.Product;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.GuestNotificationRepository;
+import com.aurora.pms.repository.InventoryItemRepository;
+import com.aurora.pms.repository.InventoryMovementRepository;
 import com.aurora.pms.repository.ProductRepository;
+import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.security.GuestPrincipal;
+import com.jayway.jsonpath.JsonPath;
 
 /** Endpoints del portal del huesped agregados para INT-12. */
 class GuestAccessControllerTest extends AbstractCatalogApiTest {
@@ -41,14 +49,31 @@ class GuestAccessControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private GuestNotificationRepository notificationRepository;
 
+	@Autowired
+	private InventoryItemRepository inventoryItemRepository;
+
+	@Autowired
+	private InventoryMovementRepository inventoryMovementRepository;
+
+	@Autowired
+	private ServiceRequestRepository serviceRequestRepository;
+
 	private final List<UUID> productIds = new ArrayList<>();
 	private final List<UUID> notificationIds = new ArrayList<>();
+	private final List<UUID> inventoryItemIds = new ArrayList<>();
+	private final List<UUID> serviceRequestIds = new ArrayList<>();
 
 	@AfterEach
 	void cleanUpGuestAccessData() {
+		serviceRequestRepository.deleteAllById(serviceRequestIds);
+		inventoryItemIds.forEach(itemId -> inventoryMovementRepository.deleteAll(
+				inventoryMovementRepository.findByInventoryItemIdOrderByOccurredAtAscCreatedAtAsc(itemId)));
+		inventoryItemRepository.deleteAllById(inventoryItemIds);
 		notificationRepository.deleteAllById(notificationIds);
 		productRepository.deleteAllById(productIds);
 		notificationIds.clear();
+		serviceRequestIds.clear();
+		inventoryItemIds.clear();
 		productIds.clear();
 	}
 
@@ -87,6 +112,58 @@ class GuestAccessControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isUnauthorized());
 		mockMvc.perform(get(BASE_PATH + "/room-service/products").with(staffUser()))
 				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void housekeepingCatalogIsAvailableOnlyToAuthenticatedGuestsAndDoesNotExposeInventoryInternals() throws Exception {
+		Booking booking = createCheckedInBooking();
+		mockMvc.perform(get(BASE_PATH + "/housekeeping/items").with(guestOf(booking)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[*].sku").doesNotExist())
+				.andExpect(jsonPath("$[*].category").doesNotExist());
+		mockMvc.perform(get(BASE_PATH + "/housekeeping/items").with(staffUser()))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void guestHousekeepingItemRequestRejectsInvalidQuantity() throws Exception {
+		Booking booking = createCheckedInBooking();
+		mockMvc.perform(post(BASE_PATH + "/housekeeping/item-requests")
+					.contentType("application/json")
+					.content("{\"itemId\":\"" + UUID.randomUUID() + "\",\"quantity\":6}")
+					.with(guestOf(booking)))
+				.andExpect(status().isBadRequest());
+	}
+
+	@Test
+	void guestItemRequestReservesStockAndCancellationReleasesIt() throws Exception {
+		Booking booking = createCheckedInBooking();
+		booking.setCheckIn(LocalDate.now(ZoneId.of("America/Guatemala")).minusDays(1));
+		booking.setCheckOut(LocalDate.now(ZoneId.of("America/Guatemala")).plusDays(1));
+		bookingRepository.save(booking);
+		InventoryItem item = createHousekeepingItem(5);
+
+		MvcResult first = mockMvc.perform(post(BASE_PATH + "/housekeeping/item-requests")
+					.contentType("application/json")
+					.content("{\"itemId\":\"" + item.getId() + "\",\"quantity\":3}")
+					.with(guestOf(booking)))
+				.andExpect(status().isCreated())
+				.andReturn();
+		UUID firstRequestId = UUID.fromString(JsonPath.read(
+				first.getResponse().getContentAsString(), "$.id"));
+		serviceRequestIds.add(firstRequestId);
+		assertThat(inventoryItemRepository.findById(item.getId()).orElseThrow().getCurrentQuantity()).isEqualTo(2);
+
+		mockMvc.perform(post(BASE_PATH + "/housekeeping/item-requests")
+					.contentType("application/json")
+					.content("{\"itemId\":\"" + item.getId() + "\",\"quantity\":3}")
+					.with(guestOf(booking)))
+				.andExpect(status().isBadRequest());
+
+		mockMvc.perform(post(BASE_PATH + "/housekeeping/requests/" + firstRequestId + "/cancel")
+					.with(guestOf(booking)))
+				.andExpect(status().isOk());
+		assertThat(inventoryItemRepository.findById(item.getId()).orElseThrow().getCurrentQuantity()).isEqualTo(5);
 	}
 
 	// ---------- Marcar todas como leidas
@@ -161,6 +238,23 @@ class GuestAccessControllerTest extends AbstractCatalogApiTest {
 		product = productRepository.save(product);
 		productIds.add(product.getId());
 		return product;
+	}
+
+	private InventoryItem createHousekeepingItem(int quantity) {
+		InventoryItem item = new InventoryItem();
+		item.setSku("HK-" + uniqueSuffix());
+		item.setName("Test housekeeping item " + uniqueSuffix());
+		item.setDescription("Test item");
+		item.setCategory("housekeeping");
+		item.setUnit("unidad");
+		item.setCurrentQuantity(quantity);
+		item.setMinimumQuantity(1);
+		item.setActive(true);
+		item.setCreatedAt(now());
+		item.setUpdatedAt(now());
+		item = inventoryItemRepository.save(item);
+		inventoryItemIds.add(item.getId());
+		return item;
 	}
 
 	private GuestNotification createNotification(Booking booking, String type) {

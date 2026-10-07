@@ -18,7 +18,11 @@ import com.aurora.pms.model.enums.OrderStatus;
 @Component
 public class RoomServiceMapper {
 
-	public RoomServiceProductResponse toProductResponse(Product product, List<MediaImageResponse> images) {
+	public RoomServiceProductResponse toProductResponse(
+			Product product,
+			Integer stockQuantity,
+			List<MediaImageResponse> images
+	) {
 		return new RoomServiceProductResponse(
 				product.getId(),
 				product.getSku(),
@@ -28,6 +32,7 @@ public class RoomServiceMapper {
 				product.getPriceCents(),
 				product.getCurrency(),
 				product.getActive(),
+				stockQuantity,
 				List.copyOf(images)
 		);
 	}

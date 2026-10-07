@@ -30,6 +30,7 @@ import com.aurora.pms.model.Amenity;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.AmenityCategory;
 import com.aurora.pms.repository.AmenityRepository;
+import com.aurora.pms.repository.InventoryItemRepository;
 import com.aurora.pms.repository.MediaImageRepository;
 import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.security.SecurityPermissions;
@@ -66,15 +67,20 @@ class MediaApiTest extends AbstractCatalogApiTest {
 	@Autowired
 	private ProductRepository productRepository;
 
+	@Autowired
+	private InventoryItemRepository inventoryItemRepository;
+
 	private final List<UUID> mediaIds = new ArrayList<>();
 	private final List<UUID> amenityIds = new ArrayList<>();
 	private final List<UUID> productIds = new ArrayList<>();
+	private final List<UUID> inventoryItemIds = new ArrayList<>();
 
 	@AfterEach
 	void cleanUpMedia() {
 		mediaImageRepository.deleteAllById(mediaIds);
 		amenityRepository.deleteAllById(amenityIds);
 		productRepository.deleteAllById(productIds);
+		inventoryItemRepository.deleteAllById(inventoryItemIds);
 	}
 
 	@Test
@@ -202,6 +208,44 @@ class MediaApiTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$[?(@.id == '%s')].images[0].id".formatted(amenity.getId()))
 						.value(amenityImage.toString()));
 		mockMvc.perform(get("/api/v1/public/media/{id}/thumb", amenityImage))
+				.andExpect(status().isOk());
+	}
+
+	@Test
+	void inventoryItemPersistsImageAndReturnsItOnSubsequentReads() throws Exception {
+		UUID imageId = upload("inventory_item", userWithPermissions(
+				"inventory.editor@aurora.test", SecurityPermissions.INVENTORY_WRITE));
+		String response = mockMvc.perform(post("/api/v1/admin/inventory/items")
+						.with(userWithPermissions("inventory.editor@aurora.test", SecurityPermissions.INVENTORY_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name": "Toallas", "category": "housekeeping",
+								 "unit": "unit", "images": [{"mediaId": "%s"}]}
+								""".formatted(imageId)))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.sku").isNotEmpty())
+				.andExpect(jsonPath("$.images[0].id").value(imageId.toString()))
+				.andExpect(jsonPath("$.images[0].primary").value(true))
+				.andReturn().getResponse().getContentAsString();
+		UUID itemId = UUID.fromString(JsonPath.read(response, "$.id"));
+		String generatedSku = JsonPath.read(response, "$.sku");
+		assertThat(generatedSku).matches("INV-[0-9A-F]{32}");
+		inventoryItemIds.add(itemId);
+		mockMvc.perform(put("/api/v1/admin/inventory/items/{id}", itemId)
+						.with(userWithPermissions("inventory.editor@aurora.test", SecurityPermissions.INVENTORY_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"name": "Toallas premium", "category": "housekeeping", "unit": "unit"}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.sku").value(generatedSku));
+
+		mockMvc.perform(get("/api/v1/inventory/items").with(userWithPermissions(
+					"inventory.editor@aurora.test", SecurityPermissions.INVENTORY_READ)))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[?(@.id == '%s')].images[0].id".formatted(itemId))
+						.value(imageId.toString()));
+		mockMvc.perform(get("/api/v1/public/media/{id}/thumb", imageId))
 				.andExpect(status().isOk());
 	}
 

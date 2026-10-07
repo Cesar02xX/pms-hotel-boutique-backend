@@ -22,6 +22,7 @@ import com.aurora.pms.dto.request.CreateBookingRequest;
 import com.aurora.pms.dto.request.CreateGuestBookingRequest;
 import com.aurora.pms.dto.request.CreateConciergeRequestRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
+import com.aurora.pms.dto.request.CreateGuestHousekeepingItemRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
@@ -40,17 +41,22 @@ import com.aurora.pms.mapper.BookingMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.GuestCredential;
+import com.aurora.pms.model.InventoryItem;
+import com.aurora.pms.model.InventoryMovement;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.InventoryMovementReason;
+import com.aurora.pms.model.enums.InventoryMovementType;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.GuestCredentialRepository;
+import com.aurora.pms.repository.InventoryItemRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.security.GuestPrincipal;
@@ -61,6 +67,7 @@ import com.aurora.pms.service.GuestAccessService;
 import com.aurora.pms.service.GuestNotificationService;
 import com.aurora.pms.service.HousekeepingService;
 import com.aurora.pms.service.RoomServiceOrderService;
+import com.aurora.pms.service.impl.InventoryStockLedger;
 
 @Service
 public class GuestAccessServiceImpl implements GuestAccessService {
@@ -76,6 +83,8 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	private final BookingRepository bookingRepository;
 	private final GuestAccountRepository guestAccountRepository;
 	private final GuestCredentialRepository guestCredentialRepository;
+	private final InventoryItemRepository inventoryItemRepository;
+	private final InventoryStockLedger stockLedger;
 	private final ServiceRequestRepository serviceRequestRepository;
 	private final RoomServiceOrderService roomServiceOrderService;
 	private final HousekeepingService housekeepingService;
@@ -94,6 +103,8 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 			BookingRepository bookingRepository,
 			GuestAccountRepository guestAccountRepository,
 			GuestCredentialRepository guestCredentialRepository,
+			InventoryItemRepository inventoryItemRepository,
+			InventoryStockLedger stockLedger,
 			ServiceRequestRepository serviceRequestRepository,
 			RoomServiceOrderService roomServiceOrderService,
 			HousekeepingService housekeepingService,
@@ -111,6 +122,8 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 		this.bookingRepository = bookingRepository;
 		this.guestAccountRepository = guestAccountRepository;
 		this.guestCredentialRepository = guestCredentialRepository;
+		this.inventoryItemRepository = inventoryItemRepository;
+		this.stockLedger = stockLedger;
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.roomServiceOrderService = roomServiceOrderService;
 		this.housekeepingService = housekeepingService;
@@ -151,7 +164,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 		Booking activeBooking = checkedInBookings.stream()
 				.filter(b -> !today.isBefore(b.getCheckIn()) && today.isBefore(b.getCheckOut()))
 				.findFirst()
-				.orElseThrow(() -> new BadRequestException("Guest stay is expired or not yet active"));
+				.orElseThrow(() -> new BadRequestException("La estancia no está activa: ya venció o todavía no ha comenzado."));
 
 		GuestPrincipal principal = new GuestPrincipal(
 				activeBooking.getId(),
@@ -247,6 +260,47 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	}
 
 	@Override
+	@Transactional
+	public StayoverCleaningResponse createHousekeepingItemRequest(
+			UUID bookingId,
+			CreateGuestHousekeepingItemRequest request
+	) {
+		Booking booking = getOwnBooking(bookingId);
+		if (booking.getRoom() == null) {
+			throw new BadRequestException("Booking has no assigned room");
+		}
+		InventoryItem item = inventoryItemRepository.findByIdForUpdate(request.itemId())
+				.orElseThrow(() -> new ResourceNotFoundException("Inventory item not found: " + request.itemId()));
+		if (!Boolean.TRUE.equals(item.getActive()) || !"housekeeping".equalsIgnoreCase(item.getCategory())) {
+			throw new BadRequestException("The selected item is not available for guest housekeeping requests");
+		}
+		if (item.getCurrentQuantity() < request.quantity()) {
+			throw new BadRequestException(
+					"Not enough housekeeping items are currently available: " + item.getCurrentQuantity());
+		}
+
+		String description = "Artículos solicitados: " + request.quantity() + " × " + item.getName();
+		if (request.notes() != null && !request.notes().isBlank()) {
+			description += " · " + request.notes().trim();
+		}
+		StayoverCleaningResponse response = housekeepingService.createStayoverCleaning(
+				booking.getRoom().getId(), bookingId, description, null);
+		ServiceRequest serviceRequest = serviceRequestRepository.findByIdForUpdate(response.id())
+				.orElseThrow(() -> new ResourceNotFoundException("Housekeeping request not found: " + response.id()));
+		serviceRequest.setInventoryItem(item);
+		serviceRequest.setInventoryQuantity(request.quantity());
+		serviceRequestRepository.save(serviceRequest);
+
+		InventoryMovement movement = new InventoryMovement();
+		movement.setType(InventoryMovementType.out);
+		movement.setReason(InventoryMovementReason.reservation);
+		movement.setQuantity(request.quantity());
+		movement.setNotes("Reserva para solicitud de limpieza " + response.id());
+		stockLedger.apply(item, movement);
+		return response;
+	}
+
+	@Override
 	public List<StayoverCleaningResponse> findHousekeepingRequests(UUID bookingId) {
 		getOwnBooking(bookingId);
 		return housekeepingService.findStayoverCleanings(bookingId, null);
@@ -264,6 +318,17 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 		request.setStatus(ServiceRequestStatus.cancelled);
 		request.setUpdatedAt(OffsetDateTime.now());
 		serviceRequestRepository.save(request);
+		if (request.getInventoryItem() != null && request.getInventoryQuantity() != null) {
+			InventoryItem item = inventoryItemRepository.findByIdForUpdate(request.getInventoryItem().getId())
+					.orElseThrow(() -> new ResourceNotFoundException(
+							"Inventory item not found: " + request.getInventoryItem().getId()));
+			InventoryMovement release = new InventoryMovement();
+			release.setType(InventoryMovementType.in);
+			release.setReason(InventoryMovementReason.reservation_release);
+			release.setQuantity(request.getInventoryQuantity());
+			release.setNotes("Liberación de reserva de solicitud de limpieza " + requestId);
+			stockLedger.apply(item, release);
+		}
 		guestNotificationService.createIfAbsent(
 				request.getBooking(),
 				"housekeeping_cancelled",

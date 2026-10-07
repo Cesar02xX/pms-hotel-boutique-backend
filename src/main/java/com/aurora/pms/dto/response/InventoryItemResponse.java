@@ -2,6 +2,9 @@ package com.aurora.pms.dto.response;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.List;
+
+import com.aurora.pms.dto.response.MediaImageResponse;
 
 /** lowStock se calcula en backend: currentQuantity <= minimumQuantity. */
 public record InventoryItemResponse(
@@ -17,6 +20,7 @@ public record InventoryItemResponse(
 		UUID productId,
 		Boolean active,
 		OffsetDateTime createdAt,
-		OffsetDateTime updatedAt
+		OffsetDateTime updatedAt,
+		List<MediaImageResponse> images
 ) {
 }

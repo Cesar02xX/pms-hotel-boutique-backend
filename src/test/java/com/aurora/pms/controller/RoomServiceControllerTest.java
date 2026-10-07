@@ -3,6 +3,7 @@ package com.aurora.pms.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -116,6 +117,19 @@ class RoomServiceControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$[*].id", hasItem(activeProduct.getId().toString())))
 				.andExpect(jsonPath("$[*].id", not(hasItem(inactiveProduct.getId().toString()))));
+	}
+
+	@Test
+	void listProductsIncludesRealInventoryAvailability() throws Exception {
+		Product stockedProduct = createStockedProduct(2500L, 7);
+		Product emptyProduct = createStockedProduct(1800L, 0);
+		Product unlinkedProduct = createProduct(ProductCategory.food_and_beverage, true, 1200L);
+
+		mockMvc.perform(get("/api/v1/room-service/products").with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$[?(@.id == '" + stockedProduct.getId() + "')].stockQuantity", contains(7)))
+				.andExpect(jsonPath("$[?(@.id == '" + emptyProduct.getId() + "')].stockQuantity", contains(0)))
+				.andExpect(jsonPath("$[?(@.id == '" + unlinkedProduct.getId() + "')].stockQuantity", contains(0)));
 	}
 
 	@Test

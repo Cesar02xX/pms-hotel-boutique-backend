@@ -28,6 +28,8 @@ public interface MediaImageRepository extends JpaRepository<MediaImage, UUID> {
 
 	List<MediaImage> findByAmenityIdInOrderByPositionAsc(Collection<UUID> amenityIds);
 
+	List<MediaImage> findByInventoryItemIdInOrderByPositionAsc(Collection<UUID> inventoryItemIds);
+
 	List<MediaImage> findByPendingSinceBeforeOrderByPendingSinceAsc(OffsetDateTime threshold, Limit limit);
 
 	/**
@@ -52,6 +54,7 @@ public interface MediaImageRepository extends JpaRepository<MediaImage, UUID> {
 				exists (select 1 from RoomType r where r.id = m.roomTypeId and r.active = true)
 				or exists (select 1 from Product p where p.id = m.productId and p.active = true)
 				or exists (select 1 from Amenity a where a.id = m.amenityId and a.active = true)
+				or exists (select 1 from InventoryItem i where i.id = m.inventoryItemId and i.active = true)
 			)
 			""")
 	boolean isPublic(@Param("id") UUID id);
