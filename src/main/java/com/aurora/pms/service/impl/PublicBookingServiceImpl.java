@@ -22,6 +22,7 @@ import com.aurora.pms.dto.request.CreateGuestRequest;
 import com.aurora.pms.dto.request.PublicCreateBookingRequest;
 import com.aurora.pms.dto.request.PublicGuestRequest;
 import com.aurora.pms.dto.response.BookingResponse;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.PublicAvailabilityResponse;
 import com.aurora.pms.dto.response.PublicAvailabilityResult;
 import com.aurora.pms.dto.response.PublicBookingResponse;
@@ -34,6 +35,7 @@ import com.aurora.pms.model.Guest;
 import com.aurora.pms.model.Rate;
 import com.aurora.pms.model.RoomFeature;
 import com.aurora.pms.model.RoomType;
+import com.aurora.pms.model.enums.MediaTarget;
 import com.aurora.pms.repository.GuestRepository;
 import com.aurora.pms.repository.RateRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
@@ -41,6 +43,7 @@ import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
 import com.aurora.pms.service.BookingService;
 import com.aurora.pms.service.GuestService;
+import com.aurora.pms.service.MediaImageService;
 import com.aurora.pms.service.PublicBookingService;
 
 @Service
@@ -60,6 +63,7 @@ public class PublicBookingServiceImpl implements PublicBookingService {
 	private final GuestService guestService;
 	private final BookingService bookingService;
 	private final PublicBookingMapper publicBookingMapper;
+	private final MediaImageService mediaImageService;
 	private final Clock clock;
 	private final ZoneId hotelZoneId;
 
@@ -73,6 +77,7 @@ public class PublicBookingServiceImpl implements PublicBookingService {
 			GuestService guestService,
 			BookingService bookingService,
 			PublicBookingMapper publicBookingMapper,
+			MediaImageService mediaImageService,
 			Clock clock,
 			@Value("${pms.hotel.zone-id}") String hotelZoneId
 	) {
@@ -85,6 +90,7 @@ public class PublicBookingServiceImpl implements PublicBookingService {
 		this.guestService = guestService;
 		this.bookingService = bookingService;
 		this.publicBookingMapper = publicBookingMapper;
+		this.mediaImageService = mediaImageService;
 		this.clock = clock;
 		this.hotelZoneId = ZoneId.of(hotelZoneId);
 	}
@@ -107,6 +113,10 @@ public class PublicBookingServiceImpl implements PublicBookingService {
 		List<UUID> featureIds = featureIdsByRoomType.values().stream().flatMap(List::stream).distinct().toList();
 		Map<UUID, RoomFeature> featuresById = roomFeatureRepository.findAllById(featureIds).stream()
 				.collect(Collectors.toMap(RoomFeature::getId, Function.identity()));
+		Map<UUID, List<MediaImageResponse>> imagesByRoomType = mediaImageService.findImages(
+				MediaTarget.room_type,
+				roomTypeIds
+		);
 
 		return roomTypes.stream()
 				.map(roomType -> publicBookingMapper.toRoomTypeResponse(
@@ -115,7 +125,8 @@ public class PublicBookingServiceImpl implements PublicBookingService {
 								.map(featuresById::get)
 								.filter(Objects::nonNull)
 								.sorted(Comparator.comparing(RoomFeature::getName))
-								.toList()
+								.toList(),
+						imagesByRoomType.getOrDefault(roomType.getId(), List.of())
 				))
 				.toList();
 	}

@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 
 import com.aurora.pms.dto.request.PublicGuestRequest;
 import com.aurora.pms.dto.response.BookingResponse;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.PublicAvailabilityResult;
 import com.aurora.pms.dto.response.PublicBookingResponse;
 import com.aurora.pms.dto.response.PublicRateResponse;
@@ -24,7 +25,11 @@ import com.aurora.pms.model.RoomType;
 @Component
 public class PublicBookingMapper {
 
-	public PublicRoomTypeResponse toRoomTypeResponse(RoomType roomType, List<RoomFeature> features) {
+	public PublicRoomTypeResponse toRoomTypeResponse(
+			RoomType roomType,
+			List<RoomFeature> features,
+			List<MediaImageResponse> images
+	) {
 		return new PublicRoomTypeResponse(
 				roomType.getId(),
 				roomType.getCode(),
@@ -32,7 +37,8 @@ public class PublicBookingMapper {
 				roomType.getDescription(),
 				roomType.getCapacity(),
 				roomType.getBedConfiguration(),
-				features.stream().map(this::toFeatureResponse).toList()
+				features.stream().map(this::toFeatureResponse).toList(),
+				List.copyOf(images)
 		);
 	}
 

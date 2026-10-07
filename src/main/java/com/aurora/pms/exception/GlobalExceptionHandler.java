@@ -1,5 +1,6 @@
 package com.aurora.pms.exception;
 
+import com.aurora.pms.domain.port.storage.ObjectStorageException;
 import com.aurora.pms.dto.response.ApiErrorResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
@@ -12,11 +13,14 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.util.StringUtils;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
@@ -44,6 +48,52 @@ public class GlobalExceptionHandler {
             HttpServletRequest request
     ) {
         return buildResponse(HttpStatus.CONFLICT, exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler({PayloadTooLargeException.class, MaxUploadSizeExceededException.class})
+    public ResponseEntity<ApiErrorResponse> handlePayloadTooLarge(
+            Exception exception,
+            HttpServletRequest request
+    ) {
+        String message = exception instanceof PayloadTooLargeException
+                ? exception.getMessage()
+                : "Uploaded file exceeds the maximum allowed size";
+        return buildResponse(HttpStatus.PAYLOAD_TOO_LARGE, message, request.getRequestURI());
+    }
+
+    @ExceptionHandler(UnsupportedMediaTypeException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnsupportedMediaType(
+            UnsupportedMediaTypeException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.UNSUPPORTED_MEDIA_TYPE, exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported request content type", request.getRequestURI());
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingRequestPart(
+            MissingServletRequestPartException exception,
+            HttpServletRequest request
+    ) {
+        String message = "Required part '" + exception.getRequestPartName() + "' is missing";
+        return buildResponse(HttpStatus.BAD_REQUEST, message, request.getRequestURI());
+    }
+
+    /** El proveedor de almacenamiento no respondió: no se guardó nada y se puede reintentar. */
+    @ExceptionHandler(ObjectStorageException.class)
+    public ResponseEntity<ApiErrorResponse> handleObjectStorage(
+            ObjectStorageException exception,
+            HttpServletRequest request
+    ) {
+        return buildResponse(HttpStatus.SERVICE_UNAVAILABLE, "Image storage is temporarily unavailable",
+                request.getRequestURI());
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)

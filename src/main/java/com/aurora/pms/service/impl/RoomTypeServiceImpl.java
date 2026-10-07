@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.aurora.pms.dto.request.CreateRoomTypeRequest;
 import com.aurora.pms.dto.request.UpdateRoomTypeRequest;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.RoomTypeResponse;
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ConflictException;
@@ -29,10 +30,12 @@ import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.RoomTypeFeature;
 import com.aurora.pms.model.RoomTypeFeatureId;
 import com.aurora.pms.model.enums.BookingStatus;
+import com.aurora.pms.model.enums.MediaTarget;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
 import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
+import com.aurora.pms.service.MediaImageService;
 import com.aurora.pms.service.RoomTypeService;
 
 @Service
@@ -49,6 +52,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 	private final RoomTypeFeatureRepository roomTypeFeatureRepository;
 	private final BookingRepository bookingRepository;
 	private final RoomTypeMapper roomTypeMapper;
+	private final MediaImageService mediaImageService;
 	private final Clock clock;
 	private final ZoneId hotelZoneId;
 
@@ -58,6 +62,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 			RoomTypeFeatureRepository roomTypeFeatureRepository,
 			BookingRepository bookingRepository,
 			RoomTypeMapper roomTypeMapper,
+			MediaImageService mediaImageService,
 			Clock clock,
 			@Value("${pms.hotel.zone-id}") String hotelZoneId
 	) {
@@ -66,6 +71,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 		this.roomTypeFeatureRepository = roomTypeFeatureRepository;
 		this.bookingRepository = bookingRepository;
 		this.roomTypeMapper = roomTypeMapper;
+		this.mediaImageService = mediaImageService;
 		this.clock = clock;
 		this.hotelZoneId = ZoneId.of(hotelZoneId);
 	}
@@ -87,10 +93,16 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 						Collectors.mapping(association -> association.getId().getRoomFeatureId(), Collectors.toList())
 				));
 
+		Map<UUID, List<MediaImageResponse>> imagesByRoomType = mediaImageService.findImages(
+				MediaTarget.room_type,
+				roomTypeIds
+		);
+
 		return roomTypes.stream()
 				.map(roomType -> roomTypeMapper.toResponse(
 						roomType,
-						featureIdsByRoomType.getOrDefault(roomType.getId(), List.of())
+						featureIdsByRoomType.getOrDefault(roomType.getId(), List.of()),
+						imagesByRoomType.getOrDefault(roomType.getId(), List.of())
 				))
 				.toList();
 	}
@@ -99,7 +111,7 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 	@Transactional(readOnly = true)
 	public RoomTypeResponse findById(UUID id) {
 		RoomType roomType = getRoomType(id);
-		return roomTypeMapper.toResponse(roomType, findFeatureIds(id));
+		return roomTypeMapper.toResponse(roomType, findFeatureIds(id), findImages(id));
 	}
 
 	@Override
@@ -120,8 +132,13 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 		roomTypeFeatureRepository.saveAll(roomFeatures.stream()
 				.map(roomFeature -> buildAssociation(saved, roomFeature))
 				.toList());
+		mediaImageService.replaceImages(MediaTarget.room_type, saved.getId(), request.images());
 
-		return roomTypeMapper.toResponse(saved, roomFeatures.stream().map(RoomFeature::getId).toList());
+		return roomTypeMapper.toResponse(
+				saved,
+				roomFeatures.stream().map(RoomFeature::getId).toList(),
+				findImages(saved.getId())
+		);
 	}
 
 	@Override
@@ -144,13 +161,18 @@ public class RoomTypeServiceImpl implements RoomTypeService {
 		if (request.roomFeatureIds() != null) {
 			replaceRoomFeatures(saved, resolveRoomFeatures(request.roomFeatureIds()));
 		}
+		mediaImageService.replaceImages(MediaTarget.room_type, id, request.images());
 
-		return roomTypeMapper.toResponse(saved, findFeatureIds(id));
+		return roomTypeMapper.toResponse(saved, findFeatureIds(id), findImages(id));
 	}
 
 	private RoomType getRoomType(UUID id) {
 		return roomTypeRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Room type not found: " + id));
+	}
+
+	private List<MediaImageResponse> findImages(UUID roomTypeId) {
+		return mediaImageService.findImages(MediaTarget.room_type, roomTypeId);
 	}
 
 	private List<UUID> findFeatureIds(UUID roomTypeId) {

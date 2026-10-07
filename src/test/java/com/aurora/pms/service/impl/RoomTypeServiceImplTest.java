@@ -45,6 +45,7 @@ import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.RoomFeatureRepository;
 import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
+import com.aurora.pms.service.MediaImageService;
 
 @ExtendWith(MockitoExtension.class)
 class RoomTypeServiceImplTest {
@@ -65,6 +66,9 @@ class RoomTypeServiceImplTest {
 	@Mock
 	private BookingRepository bookingRepository;
 
+	@Mock
+	private MediaImageService mediaImageService;
+
 	@Captor
 	private ArgumentCaptor<List<RoomTypeFeature>> associationsCaptor;
 
@@ -78,6 +82,7 @@ class RoomTypeServiceImplTest {
 				roomTypeFeatureRepository,
 				bookingRepository,
 				new RoomTypeMapper(),
+				mediaImageService,
 				CLOCK,
 				"America/Guatemala"
 		);
@@ -98,7 +103,7 @@ class RoomTypeServiceImplTest {
 
 		RoomTypeResponse response = roomTypeService.create(new CreateRoomTypeRequest(
 				"DLX", "Deluxe", null, 2, null,
-				List.of(balcony.getId(), jacuzzi.getId(), balcony.getId()), null));
+				List.of(balcony.getId(), jacuzzi.getId(), balcony.getId()), null, null));
 
 		assertThat(response.roomFeatureIds()).containsExactly(balcony.getId(), jacuzzi.getId());
 		assertThat(response.active()).isTrue();
@@ -114,7 +119,7 @@ class RoomTypeServiceImplTest {
 		when(roomFeatureRepository.findAllById(Set.of(unknownFeatureId))).thenReturn(List.of());
 
 		assertThatThrownBy(() -> roomTypeService.create(new CreateRoomTypeRequest(
-				"DLX", "Deluxe", null, 2, null, List.of(unknownFeatureId), null)))
+				"DLX", "Deluxe", null, 2, null, List.of(unknownFeatureId), null, null)))
 				.isInstanceOf(BadRequestException.class)
 				.hasMessageContaining(unknownFeatureId.toString());
 		verify(roomTypeRepository, never()).save(any());
@@ -125,7 +130,7 @@ class RoomTypeServiceImplTest {
 		when(roomTypeRepository.existsByCode("DLX")).thenReturn(true);
 
 		assertThatThrownBy(() -> roomTypeService.create(new CreateRoomTypeRequest(
-				"DLX", "Deluxe", null, 2, null, null, null)))
+				"DLX", "Deluxe", null, 2, null, null, null, null)))
 				.isInstanceOf(BadRequestException.class);
 		verify(roomTypeRepository, never()).save(any());
 	}
@@ -147,7 +152,7 @@ class RoomTypeServiceImplTest {
 				.thenReturn(List.of(keptAssociation, removedAssociation));
 
 		RoomTypeResponse response = roomTypeService.update(roomType.getId(), new UpdateRoomTypeRequest(
-				null, null, null, null, null, List.of(kept.getId(), added.getId()), null));
+				null, null, null, null, null, List.of(kept.getId(), added.getId()), null, null));
 
 		verify(roomTypeFeatureRepository).deleteAll(List.of(removedAssociation));
 		verify(roomTypeFeatureRepository).saveAll(associationsCaptor.capture());
@@ -165,7 +170,7 @@ class RoomTypeServiceImplTest {
 		when(roomTypeRepository.save(roomType)).thenReturn(roomType);
 
 		roomTypeService.update(roomType.getId(), new UpdateRoomTypeRequest(
-				null, "Deluxe Plus", null, 3, null, null, null));
+				null, "Deluxe Plus", null, 3, null, null, null, null));
 
 		assertThat(roomType.getName()).isEqualTo("Deluxe Plus");
 		assertThat(roomType.getCapacity()).isEqualTo(3);
@@ -184,7 +189,7 @@ class RoomTypeServiceImplTest {
 		when(roomTypeRepository.save(roomType)).thenReturn(roomType);
 
 		RoomTypeResponse response = roomTypeService.update(roomType.getId(), new UpdateRoomTypeRequest(
-				null, null, null, 2, null, null, null));
+				null, null, null, 2, null, null, null, null));
 
 		assertThat(response.capacity()).isEqualTo(2);
 		verify(bookingRepository).existsActiveOrFutureOverCapacity(
@@ -202,7 +207,7 @@ class RoomTypeServiceImplTest {
 				.thenReturn(true);
 
 		assertThatThrownBy(() -> roomTypeService.update(roomType.getId(), new UpdateRoomTypeRequest(
-				null, null, null, 2, null, null, null)))
+				null, null, null, 2, null, null, null, null)))
 				.isInstanceOf(ConflictException.class);
 		verify(roomTypeRepository, never()).save(any());
 	}

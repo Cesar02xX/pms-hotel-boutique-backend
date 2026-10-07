@@ -10,6 +10,7 @@ public record PublicRoomTypeResponse(
 		String description,
 		Integer capacity,
 		String bedConfiguration,
-		List<PublicRoomFeatureResponse> features
+		List<PublicRoomFeatureResponse> features,
+		List<MediaImageResponse> images
 ) {
 }

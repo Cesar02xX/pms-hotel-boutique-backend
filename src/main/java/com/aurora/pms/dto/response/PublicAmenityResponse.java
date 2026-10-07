@@ -1,13 +1,13 @@
 package com.aurora.pms.dto.response;
 
 import java.time.LocalTime;
-import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
 import com.aurora.pms.model.enums.AmenityCategory;
 
-public record AmenityResponse(
+/** Amenidad activa para la web pública: sin banderas internas ni timestamps de auditoría. */
+public record PublicAmenityResponse(
 		UUID id,
 		String name,
 		String description,
@@ -15,9 +15,6 @@ public record AmenityResponse(
 		String location,
 		LocalTime opensAt,
 		LocalTime closesAt,
-		Boolean active,
-		OffsetDateTime createdAt,
-		OffsetDateTime updatedAt,
 		List<MediaImageResponse> images
 ) {
 }

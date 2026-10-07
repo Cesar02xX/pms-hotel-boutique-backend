@@ -17,5 +17,45 @@ services:
       timeout: 5s
       retries: 5
 
+  # Almacenamiento S3 compatible para imágenes de catálogo (#82), solo para desarrollo.
+  # RustFS (Apache-2.0) reemplaza a MinIO, que dejó de publicar imágenes de Docker.
+  # Los puertos evitan el 9000 que ocupa SonarQube (docker-compose.sonarqube.yml).
+  object-storage:
+    image: rustfs/rustfs:1.0.1
+    container_name: pms-hotel-object-storage
+    restart: unless-stopped
+    environment:
+      RUSTFS_ACCESS_KEY: ${PMS_MEDIA_S3_ACCESS_KEY:-pms_storage}
+      RUSTFS_SECRET_KEY: ${PMS_MEDIA_S3_SECRET_KEY:-pms_storage_password}
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "${OBJECT_STORAGE_API_PORT:-9100}:9000"
+      - "${OBJECT_STORAGE_CONSOLE_PORT:-9101}:9001"
+    volumes:
+      - pms_object_storage_data:/data
+
+  # Crea el bucket privado si no existe y termina. Reintenta mientras el almacenamiento arranca.
+  object-storage-init:
+    image: amazon/aws-cli:2.37.9
+    depends_on:
+      - object-storage
+    environment:
+      AWS_ACCESS_KEY_ID: ${PMS_MEDIA_S3_ACCESS_KEY:-pms_storage}
+      AWS_SECRET_ACCESS_KEY: ${PMS_MEDIA_S3_SECRET_KEY:-pms_storage_password}
+      AWS_DEFAULT_REGION: ${PMS_MEDIA_S3_REGION:-us-east-1}
+      BUCKET: ${PMS_MEDIA_S3_BUCKET:-pms-media}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for attempt in $$(seq 1 30); do
+          if aws --endpoint-url http://object-storage:9000 s3api head-bucket --bucket "$$BUCKET" 2>/dev/null \
+            || aws --endpoint-url http://object-storage:9000 s3api create-bucket --bucket "$$BUCKET"; then
+            echo "Bucket $$BUCKET listo"; exit 0
+          fi
+          sleep 2
+        done
+        echo "No se pudo crear el bucket $$BUCKET"; exit 1
+
 volumes:
   pms_postgres_data:
+  pms_object_storage_data:

@@ -97,7 +97,8 @@ class PublicBookingControllerTest extends AbstractCatalogApiTest {
 		List<Map<String, Object>> matches = JsonPath.read(body, "$[?(@.id == '%s')]".formatted(roomTypeId));
 		assertThat(matches).singleElement().satisfies(roomType -> {
 			assertThat(roomType).containsOnlyKeys(
-					"id", "code", "name", "description", "capacity", "bedConfiguration", "features");
+					"id", "code", "name", "description", "capacity", "bedConfiguration", "features", "images");
+			assertThat(roomType.get("images")).asList().isEmpty();
 			assertThat(roomType.get("capacity")).isEqualTo(3);
 			assertThat(roomType.get("features")).asList().singleElement().isEqualTo(Map.of(
 					"id", balcony.getId().toString(),

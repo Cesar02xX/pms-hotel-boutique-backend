@@ -54,6 +54,7 @@ import com.aurora.pms.repository.RoomTypeFeatureRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
 import com.aurora.pms.service.BookingService;
 import com.aurora.pms.service.GuestService;
+import com.aurora.pms.service.MediaImageService;
 
 @ExtendWith(MockitoExtension.class)
 class PublicBookingServiceImplTest {
@@ -91,6 +92,9 @@ class PublicBookingServiceImplTest {
 	@Mock
 	private BookingService bookingService;
 
+	@Mock
+	private MediaImageService mediaImageService;
+
 	private PublicBookingServiceImpl service;
 	private RoomType roomType;
 	private Rate rate;
@@ -108,6 +112,7 @@ class PublicBookingServiceImplTest {
 				guestService,
 				bookingService,
 				new PublicBookingMapper(),
+				mediaImageService,
 				CLOCK,
 				"America/Guatemala"
 		);
