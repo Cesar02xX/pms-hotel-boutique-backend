@@ -3,6 +3,7 @@ package com.aurora.pms.service.impl;
 import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -14,7 +15,9 @@ import com.aurora.pms.dto.request.UpsertProductRequest;
 import com.aurora.pms.dto.request.UpsertPromotionRequest;
 import com.aurora.pms.dto.response.AmenityResponse;
 import com.aurora.pms.dto.response.InventoryItemResponse;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.PromotionResponse;
+import com.aurora.pms.dto.response.PublicAmenityResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ConflictException;
@@ -25,11 +28,13 @@ import com.aurora.pms.model.Amenity;
 import com.aurora.pms.model.InventoryItem;
 import com.aurora.pms.model.Product;
 import com.aurora.pms.model.Promotion;
+import com.aurora.pms.model.enums.MediaTarget;
 import com.aurora.pms.repository.AmenityRepository;
 import com.aurora.pms.repository.InventoryItemRepository;
 import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.repository.PromotionRepository;
 import com.aurora.pms.service.AdminCatalogService;
+import com.aurora.pms.service.MediaImageService;
 
 @Service
 public class AdminCatalogServiceImpl implements AdminCatalogService {
@@ -40,6 +45,7 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 	private final PromotionRepository promotionRepository;
 	private final RoomServiceMapper roomServiceMapper;
 	private final InventoryMapper inventoryMapper;
+	private final MediaImageService mediaImageService;
 
 	public AdminCatalogServiceImpl(
 			AmenityRepository amenityRepository,
@@ -47,7 +53,8 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 			InventoryItemRepository inventoryItemRepository,
 			PromotionRepository promotionRepository,
 			RoomServiceMapper roomServiceMapper,
-			InventoryMapper inventoryMapper
+			InventoryMapper inventoryMapper,
+			MediaImageService mediaImageService
 	) {
 		this.amenityRepository = amenityRepository;
 		this.productRepository = productRepository;
@@ -55,15 +62,34 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		this.promotionRepository = promotionRepository;
 		this.roomServiceMapper = roomServiceMapper;
 		this.inventoryMapper = inventoryMapper;
+		this.mediaImageService = mediaImageService;
 	}
 
 	@Override
 	@Transactional(readOnly = true)
 	public List<AmenityResponse> findAmenities(Boolean active) {
-		return amenityRepository.findAll().stream()
-				.filter(amenity -> active == null || active.equals(amenity.getActive()))
-				.sorted(Comparator.comparing(Amenity::getName))
-				.map(this::toAmenityResponse)
+		List<Amenity> amenities = findSortedAmenities(active);
+		Map<UUID, List<MediaImageResponse>> images = mediaImageService.findImages(
+				MediaTarget.amenity,
+				amenities.stream().map(Amenity::getId).toList()
+		);
+		return amenities.stream()
+				.map(amenity -> toAmenityResponse(amenity, images.getOrDefault(amenity.getId(), List.of())))
+				.toList();
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public List<PublicAmenityResponse> findPublicAmenities() {
+		List<Amenity> amenities = findSortedAmenities(true);
+		Map<UUID, List<MediaImageResponse>> images = mediaImageService.findImages(
+				MediaTarget.amenity,
+				amenities.stream().map(Amenity::getId).toList()
+		);
+		return amenities.stream()
+				.map(amenity -> new PublicAmenityResponse(amenity.getId(), amenity.getName(),
+						amenity.getDescription(), amenity.getCategory(), amenity.getLocation(), amenity.getOpensAt(),
+						amenity.getClosesAt(), images.getOrDefault(amenity.getId(), List.of())))
 				.toList();
 	}
 
@@ -80,7 +106,9 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		OffsetDateTime now = OffsetDateTime.now();
 		amenity.setCreatedAt(now);
 		applyAmenity(amenity, request, now);
-		return toAmenityResponse(amenityRepository.save(amenity));
+		Amenity saved = amenityRepository.save(amenity);
+		mediaImageService.replaceImages(MediaTarget.amenity, saved.getId(), request.images());
+		return toAmenityResponse(saved);
 	}
 
 	@Override
@@ -88,16 +116,27 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 	public AmenityResponse updateAmenity(UUID id, UpsertAmenityRequest request) {
 		Amenity amenity = getAmenity(id);
 		applyAmenity(amenity, request, OffsetDateTime.now());
-		return toAmenityResponse(amenityRepository.save(amenity));
+		Amenity saved = amenityRepository.save(amenity);
+		mediaImageService.replaceImages(MediaTarget.amenity, id, request.images());
+		return toAmenityResponse(saved);
 	}
 
 	@Override
 	@Transactional(readOnly = true)
 	public List<RoomServiceProductResponse> findProducts(Boolean active) {
-		return productRepository.findAll().stream()
+		List<Product> products = productRepository.findAll().stream()
 				.filter(product -> active == null || active.equals(product.getActive()))
 				.sorted(Comparator.comparing(Product::getName))
-				.map(roomServiceMapper::toProductResponse)
+				.toList();
+		Map<UUID, List<MediaImageResponse>> images = mediaImageService.findImages(
+				MediaTarget.product,
+				products.stream().map(Product::getId).toList()
+		);
+		return products.stream()
+				.map(product -> roomServiceMapper.toProductResponse(
+						product,
+						images.getOrDefault(product.getId(), List.of())
+				))
 				.toList();
 	}
 
@@ -112,7 +151,9 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		OffsetDateTime now = OffsetDateTime.now();
 		product.setCreatedAt(now);
 		applyProduct(product, request, now);
-		return roomServiceMapper.toProductResponse(productRepository.save(product));
+		Product saved = productRepository.save(product);
+		mediaImageService.replaceImages(MediaTarget.product, saved.getId(), request.images());
+		return toProductResponse(saved);
 	}
 
 	@Override
@@ -121,7 +162,9 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 		Product product = productRepository.findById(id)
 				.orElseThrow(() -> new ResourceNotFoundException("Product not found: " + id));
 		applyProduct(product, request, OffsetDateTime.now());
-		return roomServiceMapper.toProductResponse(productRepository.save(product));
+		Product saved = productRepository.save(product);
+		mediaImageService.replaceImages(MediaTarget.product, id, request.images());
+		return toProductResponse(saved);
 	}
 
 	@Override
@@ -230,10 +273,28 @@ public class AdminCatalogServiceImpl implements AdminCatalogService {
 				.orElseThrow(() -> new ResourceNotFoundException("Amenity not found: " + id));
 	}
 
+	private List<Amenity> findSortedAmenities(Boolean active) {
+		return amenityRepository.findAll().stream()
+				.filter(amenity -> active == null || active.equals(amenity.getActive()))
+				.sorted(Comparator.comparing(Amenity::getName))
+				.toList();
+	}
+
 	private AmenityResponse toAmenityResponse(Amenity amenity) {
+		return toAmenityResponse(amenity, mediaImageService.findImages(MediaTarget.amenity, amenity.getId()));
+	}
+
+	private AmenityResponse toAmenityResponse(Amenity amenity, List<MediaImageResponse> images) {
 		return new AmenityResponse(amenity.getId(), amenity.getName(), amenity.getDescription(), amenity.getCategory(),
 				amenity.getLocation(), amenity.getOpensAt(), amenity.getClosesAt(), amenity.getActive(),
-				amenity.getCreatedAt(), amenity.getUpdatedAt());
+				amenity.getCreatedAt(), amenity.getUpdatedAt(), List.copyOf(images));
+	}
+
+	private RoomServiceProductResponse toProductResponse(Product product) {
+		return roomServiceMapper.toProductResponse(
+				product,
+				mediaImageService.findImages(MediaTarget.product, product.getId())
+		);
 	}
 
 	private PromotionResponse toPromotionResponse(Promotion promotion) {

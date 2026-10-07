@@ -14,7 +14,7 @@ Backend del PMS Hotel Boutique Aurora construido con Spring Boot, PostgreSQL y L
 docker compose up -d
 ```
 
-PostgreSQL queda disponible en `localhost:5432` con la base `pms_hotel_db`.
+PostgreSQL queda disponible en `localhost:5432` con la base `pms_hotel_db`. El mismo comando levanta RustFS (S3 local para imágenes de catálogo) en `localhost:9100`, con consola en `http://localhost:9101`; ver `docs/development/media-images.md`.
 
 ## Ejecutar la API
 

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import com.aurora.pms.dto.request.CreateRoomTypeRequest;
 import com.aurora.pms.dto.request.UpdateRoomTypeRequest;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.RoomTypeResponse;
 import com.aurora.pms.model.RoomType;
 
@@ -17,7 +18,11 @@ public class RoomTypeMapper {
 	 * Los IDs de características vienen de RoomTypeFeature; el servicio los
 	 * consulta aparte porque RoomType no tiene la colección mapeada.
 	 */
-	public RoomTypeResponse toResponse(RoomType roomType, List<UUID> roomFeatureIds) {
+	public RoomTypeResponse toResponse(
+			RoomType roomType,
+			List<UUID> roomFeatureIds,
+			List<MediaImageResponse> images
+	) {
 		return new RoomTypeResponse(
 				roomType.getId(),
 				roomType.getCode(),
@@ -28,7 +33,8 @@ public class RoomTypeMapper {
 				List.copyOf(roomFeatureIds),
 				roomType.getActive(),
 				roomType.getCreatedAt(),
-				roomType.getUpdatedAt()
+				roomType.getUpdatedAt(),
+				List.copyOf(images)
 		);
 	}
 

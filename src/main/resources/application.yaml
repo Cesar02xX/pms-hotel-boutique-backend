@@ -30,6 +30,13 @@ spring:
     enabled: true
     change-log: classpath:db/changelog/db.changelog-master.yaml
 
+  # Tope duro del servidor para cualquier multipart. El límite de imágenes de
+  # catálogo (pms.media.max-file-size) es menor y responde 413 con su propio mensaje.
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 11MB
+
 security:
   jwt:
     secret: ${JWT_SECRET}
@@ -39,6 +46,25 @@ security:
 pms:
   hotel:
     zone-id: ${PMS_HOTEL_ZONE_ID:America/Guatemala}
+  # Imágenes de catálogo (#82). Valores por defecto para el S3 local (RustFS) de docker-compose.yml;
+  # producción los reemplaza por variables de entorno (docs/development/media-images.md).
+  media:
+    public-base-url: ${PMS_MEDIA_PUBLIC_BASE_URL:http://localhost:8080}
+    max-file-size: ${PMS_MEDIA_MAX_FILE_SIZE:5MB}
+    max-images-per-record: ${PMS_MEDIA_MAX_IMAGES_PER_RECORD:10}
+    pending-ttl: ${PMS_MEDIA_PENDING_TTL:PT24H}
+    cleanup:
+      enabled: ${PMS_MEDIA_CLEANUP_ENABLED:true}
+      interval: ${PMS_MEDIA_CLEANUP_INTERVAL:PT1H}
+    storage:
+      provider: ${PMS_MEDIA_STORAGE_PROVIDER:s3}
+      bucket: ${PMS_MEDIA_S3_BUCKET:pms-media}
+      region: ${PMS_MEDIA_S3_REGION:us-east-1}
+      endpoint: ${PMS_MEDIA_S3_ENDPOINT:http://localhost:9100}
+      path-style-access: ${PMS_MEDIA_S3_PATH_STYLE:true}
+      access-key: ${PMS_MEDIA_S3_ACCESS_KEY:pms_storage}
+      secret-key: ${PMS_MEDIA_S3_SECRET_KEY:pms_storage_password}
+      key-prefix: ${PMS_MEDIA_S3_KEY_PREFIX:media}
 
 server:
   port: 8080

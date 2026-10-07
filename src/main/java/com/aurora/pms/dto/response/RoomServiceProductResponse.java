@@ -1,5 +1,6 @@
 package com.aurora.pms.dto.response;
 
+import java.util.List;
 import java.util.UUID;
 
 import com.aurora.pms.model.enums.ProductCategory;
@@ -12,6 +13,7 @@ public record RoomServiceProductResponse(
 		ProductCategory category,
 		Long priceCents,
 		String currency,
-		Boolean active
+		Boolean active,
+		List<MediaImageResponse> images
 ) {
 }

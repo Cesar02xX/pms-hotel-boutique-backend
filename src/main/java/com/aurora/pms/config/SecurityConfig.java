@@ -67,6 +67,15 @@ public class SecurityConfig {
 						.permitAll()
 						.requestMatchers(HttpMethod.POST, "/api/v1/public/bookings")
 						.permitAll()
+						// Imágenes publicadas y amenidades activas (#82). El servicio responde 404 a las no públicas.
+						.requestMatchers(HttpMethod.GET, "/api/v1/public/media/*/*", "/api/v1/public/amenities")
+						.permitAll()
+						// Carga de imágenes: el permiso exacto depende del destino y lo revisa MediaAccessPolicy.
+						.requestMatchers("/api/v1/media/**")
+						.hasAnyAuthority(ADMIN_AUTHORITY,
+								SecurityPermissions.ROOM_TYPES_READ, SecurityPermissions.ROOM_TYPES_WRITE,
+								SecurityPermissions.ROOM_SERVICE_READ, SecurityPermissions.ROOM_SERVICE_WRITE,
+								SecurityPermissions.ROOMS_READ, SecurityPermissions.ROOMS_WRITE)
 						.requestMatchers("/api/v1/guest/**")
 						.hasAuthority(GUEST_AUTHORITY)
 						.requestMatchers(HttpMethod.GET, "/api/v1/admin/amenities/**")

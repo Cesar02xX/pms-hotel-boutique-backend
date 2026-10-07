@@ -3,6 +3,7 @@ package com.aurora.pms.dto.request;
 import java.util.List;
 import java.util.UUID;
 
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
@@ -23,6 +24,9 @@ public record UpdateRoomTypeRequest(
 
 		List<@NotNull(message = "Room feature id must not be null") UUID> roomFeatureIds,
 
-		Boolean active
+		Boolean active,
+
+		// Galería ordenada; null no cambia nada y una lista vacía quita todas (ver MediaImageAssignmentRequest).
+		List<@Valid MediaImageAssignmentRequest> images
 ) {
 }

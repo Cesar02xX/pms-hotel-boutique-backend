@@ -14,6 +14,7 @@ public record RoomTypeResponse(
 		List<UUID> roomFeatureIds,
 		Boolean active,
 		OffsetDateTime createdAt,
-		OffsetDateTime updatedAt
+		OffsetDateTime updatedAt,
+		List<MediaImageResponse> images
 ) {
 }

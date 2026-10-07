@@ -5,6 +5,7 @@ import java.util.List;
 import org.springframework.stereotype.Component;
 
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderItemResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
@@ -17,7 +18,7 @@ import com.aurora.pms.model.enums.OrderStatus;
 @Component
 public class RoomServiceMapper {
 
-	public RoomServiceProductResponse toProductResponse(Product product) {
+	public RoomServiceProductResponse toProductResponse(Product product, List<MediaImageResponse> images) {
 		return new RoomServiceProductResponse(
 				product.getId(),
 				product.getSku(),
@@ -26,7 +27,8 @@ public class RoomServiceMapper {
 				product.getCategory(),
 				product.getPriceCents(),
 				product.getCurrency(),
-				product.getActive()
+				product.getActive(),
+				List.copyOf(images)
 		);
 	}
 

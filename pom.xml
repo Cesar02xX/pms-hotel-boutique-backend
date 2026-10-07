@@ -29,6 +29,8 @@
 	<properties>
 		<java.version>21</java.version>
 		<jacoco.version>0.8.13</jacoco.version>
+		<aws-sdk.version>2.55.11</aws-sdk.version>
+		<twelvemonkeys.version>3.15.3</twelvemonkeys.version>
 		<sonar-maven-plugin.version>5.1.0.4751</sonar-maven-plugin.version>
 		<!-- SonarQube: host, token y projectKey llegan por -D o variables de entorno en CI -->
 		<sonar.projectKey>pms-hotel-boutique-backend</sonar.projectKey>
@@ -36,6 +38,17 @@
 		<sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
 		<sonar.coverage.exclusions>**/dto/**,**/model/**,**/PmsBackendApplication.java</sonar.coverage.exclusions>
 	</properties>
+	<dependencyManagement>
+		<dependencies>
+			<dependency>
+				<groupId>software.amazon.awssdk</groupId>
+				<artifactId>bom</artifactId>
+				<version>${aws-sdk.version}</version>
+				<type>pom</type>
+				<scope>import</scope>
+			</dependency>
+		</dependencies>
+	</dependencyManagement>
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -78,6 +91,26 @@
 			<artifactId>jjwt-jackson</artifactId>
 			<version>0.12.6</version>
 			<scope>runtime</scope>
+		</dependency>
+		<!-- Imágenes de catálogo (#82): almacenamiento compatible con S3 y lectura de WebP/JPEG con orientación EXIF -->
+		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.twelvemonkeys.imageio</groupId>
+			<artifactId>imageio-jpeg</artifactId>
+			<version>${twelvemonkeys.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.twelvemonkeys.imageio</groupId>
+			<artifactId>imageio-webp</artifactId>
+			<version>${twelvemonkeys.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.twelvemonkeys.contrib</groupId>
+			<artifactId>contrib</artifactId>
+			<version>${twelvemonkeys.version}</version>
 		</dependency>
 
 		<dependency>

@@ -15,6 +15,7 @@ import com.aurora.pms.dto.request.CreateChargeRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderItemRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
 import com.aurora.pms.dto.response.ChargeResponse;
+import com.aurora.pms.dto.response.MediaImageResponse;
 import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.exception.BadRequestException;
@@ -27,6 +28,7 @@ import com.aurora.pms.model.Product;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ChargeCategory;
+import com.aurora.pms.model.enums.MediaTarget;
 import com.aurora.pms.model.enums.OrderStatus;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.repository.BookingRepository;
@@ -37,6 +39,7 @@ import com.aurora.pms.repository.ProductRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.GuestFolioService;
 import com.aurora.pms.service.GuestNotificationService;
+import com.aurora.pms.service.MediaImageService;
 import com.aurora.pms.service.RoomServiceOrderService;
 
 @Service
@@ -58,6 +61,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 	private final GuestFolioService guestFolioService;
 	private final ChargeRepository chargeRepository;
 	private final GuestNotificationService guestNotificationService;
+	private final MediaImageService mediaImageService;
 
 	public RoomServiceOrderServiceImpl(
 			ProductRepository productRepository,
@@ -69,7 +73,8 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 			RoomServiceOrderInventory orderInventory,
 			GuestFolioService guestFolioService,
 			ChargeRepository chargeRepository,
-			GuestNotificationService guestNotificationService
+			GuestNotificationService guestNotificationService,
+			MediaImageService mediaImageService
 	) {
 		this.productRepository = productRepository;
 		this.bookingRepository = bookingRepository;
@@ -81,6 +86,7 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 		this.guestFolioService = guestFolioService;
 		this.chargeRepository = chargeRepository;
 		this.guestNotificationService = guestNotificationService;
+		this.mediaImageService = mediaImageService;
 	}
 
 	@Override
@@ -90,8 +96,15 @@ public class RoomServiceOrderServiceImpl implements RoomServiceOrderService {
 				? productRepository.findByActiveTrueOrderByNameAsc()
 				: productRepository.findByActiveTrueAndCategoryOrderByNameAsc(category);
 
+		Map<UUID, List<MediaImageResponse>> images = mediaImageService.findImages(
+				MediaTarget.product,
+				products.stream().map(Product::getId).toList()
+		);
 		return products.stream()
-				.map(roomServiceMapper::toProductResponse)
+				.map(product -> roomServiceMapper.toProductResponse(
+						product,
+						images.getOrDefault(product.getId(), List.of())
+				))
 				.toList();
 	}
 

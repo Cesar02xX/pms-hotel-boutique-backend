@@ -10,11 +10,15 @@ import com.aurora.pms.dto.request.UpsertPromotionRequest;
 import com.aurora.pms.dto.response.AmenityResponse;
 import com.aurora.pms.dto.response.InventoryItemResponse;
 import com.aurora.pms.dto.response.PromotionResponse;
+import com.aurora.pms.dto.response.PublicAmenityResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 
 public interface AdminCatalogService {
 
 	List<AmenityResponse> findAmenities(Boolean active);
+
+	/** Amenidades activas con sus imágenes, para la web pública. */
+	List<PublicAmenityResponse> findPublicAmenities();
 
 	AmenityResponse findAmenity(UUID id);
 
