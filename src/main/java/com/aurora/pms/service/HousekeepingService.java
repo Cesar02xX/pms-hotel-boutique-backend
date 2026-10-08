@@ -5,7 +5,9 @@ import java.util.UUID;
 
 import com.aurora.pms.dto.request.CreateHousekeepingChecklistRequest;
 import com.aurora.pms.dto.request.UpdateHousekeepingChecklistRequest;
+import com.aurora.pms.dto.request.UpdateHousekeepingChecklistTemplateRequest;
 import com.aurora.pms.dto.response.HousekeepingChecklistResponse;
+import com.aurora.pms.dto.response.HousekeepingChecklistTemplateResponse;
 import com.aurora.pms.dto.response.HousekeepingRoomResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.model.enums.HousekeepingChecklistStatus;
@@ -45,5 +47,11 @@ public interface HousekeepingService {
 			UUID id,
 			UpdateHousekeepingChecklistRequest request,
 			String actorEmail
+	);
+
+	HousekeepingChecklistTemplateResponse getGuestCleaningChecklistTemplate();
+
+	HousekeepingChecklistTemplateResponse updateGuestCleaningChecklistTemplate(
+			UpdateHousekeepingChecklistTemplateRequest request
 	);
 }

@@ -17,8 +17,10 @@ import com.aurora.pms.dto.request.CreateHousekeepingChecklistItemRequest;
 import com.aurora.pms.dto.request.CreateHousekeepingChecklistRequest;
 import com.aurora.pms.dto.request.UpdateHousekeepingChecklistItemRequest;
 import com.aurora.pms.dto.request.UpdateHousekeepingChecklistRequest;
+import com.aurora.pms.dto.request.UpdateHousekeepingChecklistTemplateRequest;
 import com.aurora.pms.dto.response.HousekeepingChecklistItemResponse;
 import com.aurora.pms.dto.response.HousekeepingChecklistResponse;
+import com.aurora.pms.dto.response.HousekeepingChecklistTemplateResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.dto.response.HousekeepingRoomResponse;
 import com.aurora.pms.exception.BadRequestException;
@@ -28,6 +30,7 @@ import com.aurora.pms.mapper.HousekeepingRoomMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.HousekeepingChecklist;
 import com.aurora.pms.model.HousekeepingChecklistItem;
+import com.aurora.pms.model.HousekeepingChecklistTemplate;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.User;
@@ -38,6 +41,7 @@ import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.HousekeepingChecklistRepository;
+import com.aurora.pms.repository.HousekeepingChecklistTemplateRepository;
 import com.aurora.pms.repository.RoomRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
@@ -59,6 +63,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 	private final BookingRepository bookingRepository;
 	private final ServiceRequestRepository serviceRequestRepository;
 	private final HousekeepingChecklistRepository housekeepingChecklistRepository;
+	private final HousekeepingChecklistTemplateRepository housekeepingChecklistTemplateRepository;
 	private final UserRepository userRepository;
 	private final HousekeepingRoomMapper housekeepingRoomMapper;
 
@@ -67,6 +72,7 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 			BookingRepository bookingRepository,
 			ServiceRequestRepository serviceRequestRepository,
 			HousekeepingChecklistRepository housekeepingChecklistRepository,
+			HousekeepingChecklistTemplateRepository housekeepingChecklistTemplateRepository,
 			UserRepository userRepository,
 			HousekeepingRoomMapper housekeepingRoomMapper
 	) {
@@ -74,8 +80,38 @@ public class HousekeepingServiceImpl implements HousekeepingService {
 		this.bookingRepository = bookingRepository;
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.housekeepingChecklistRepository = housekeepingChecklistRepository;
+		this.housekeepingChecklistTemplateRepository = housekeepingChecklistTemplateRepository;
 		this.userRepository = userRepository;
 		this.housekeepingRoomMapper = housekeepingRoomMapper;
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public HousekeepingChecklistTemplateResponse getGuestCleaningChecklistTemplate() {
+		return toChecklistTemplateResponse(findGuestCleaningChecklistTemplate());
+	}
+
+	@Override
+	@Transactional
+	public HousekeepingChecklistTemplateResponse updateGuestCleaningChecklistTemplate(
+			UpdateHousekeepingChecklistTemplateRequest request
+	) {
+		HousekeepingChecklistTemplate template = findGuestCleaningChecklistTemplate();
+		template.setItems(request.items().stream().map(String::trim).toList());
+		template.setUpdatedAt(OffsetDateTime.now());
+		return toChecklistTemplateResponse(housekeepingChecklistTemplateRepository.save(template));
+	}
+
+	private HousekeepingChecklistTemplate findGuestCleaningChecklistTemplate() {
+		return housekeepingChecklistTemplateRepository.findByCode("guest-cleaning")
+				.orElseThrow(() -> new IllegalStateException("Guest cleaning checklist template is not configured"));
+	}
+
+	private static HousekeepingChecklistTemplateResponse toChecklistTemplateResponse(
+			HousekeepingChecklistTemplate template
+	) {
+		return new HousekeepingChecklistTemplateResponse(
+				template.getCode(), template.getName(), List.copyOf(template.getItems()), template.getUpdatedAt());
 	}
 
 	@Override
