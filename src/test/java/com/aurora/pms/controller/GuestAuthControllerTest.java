@@ -3,6 +3,7 @@ package com.aurora.pms.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.hasSize;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,6 +34,7 @@ import com.aurora.pms.model.GuestCredential;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.repository.GuestCredentialRepository;
+import com.aurora.pms.repository.ConciergeServiceRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.service.GuestAccessService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -57,6 +59,9 @@ class GuestAuthControllerTest extends AbstractCatalogApiTest {
 
 	@Autowired
 	private ServiceRequestRepository serviceRequestRepository;
+
+	@Autowired
+	private ConciergeServiceRepository conciergeServiceRepository;
 
 	@Autowired
 	private PasswordEncoder passwordEncoder;
@@ -193,11 +198,17 @@ class GuestAuthControllerTest extends AbstractCatalogApiTest {
 
 		GuestLoginResponse anaAuth = login(anaCredential.getEmail(), PASSWORD);
 		GuestLoginResponse carlosAuth = login(carlosCredential.getEmail(), PASSWORD);
+		mockMvc.perform(get("/api/v1/guest/concierge/services")
+					.header("Authorization", "Bearer " + carlosAuth.accessToken()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$", hasSize(5)))
+				.andExpect(jsonPath("$[0].active", is(true)));
 
 		// Carlos crea una solicitud de conserjería
 		ConciergeRequestResponse carlosRequest = guestAccessService.createConciergeRequest(
 				carlosBooking.getId(),
-				new CreateGuestServiceRequest("Taxi para el aeropuerto", "Favor reservar para las 10:00")
+				new CreateGuestServiceRequest("Taxi para el aeropuerto", "Favor reservar para las 10:00",
+						conciergeServiceRepository.findAllByActiveTrueOrderByNameAsc().get(0).getId())
 		);
 		testServiceRequestIds.add(carlosRequest.id());
 

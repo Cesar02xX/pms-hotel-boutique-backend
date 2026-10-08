@@ -63,3 +63,5 @@ databaseChangeLog:
       file: db/changelog/migrations/030-housekeeping-item-reservations.sql
   - include:
       file: db/changelog/migrations/031-backfill-housekeeping-item-reservations.sql
+  - include:
+      file: db/changelog/migrations/032-concierge-service-catalog.sql

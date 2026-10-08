@@ -12,6 +12,11 @@ public record CreateConciergeRequestRequest(
 		@NotBlank(message = "Description is required")
 		String description,
 
-		String notes
+		String notes,
+
+		UUID serviceId
 ) {
+	public CreateConciergeRequestRequest(UUID bookingId, String description, String notes) {
+		this(bookingId, description, notes, null);
+	}
 }

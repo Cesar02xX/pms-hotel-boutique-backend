@@ -48,6 +48,10 @@ public class ServiceRequest {
 	@JoinColumn(name = "inventory_item_id")
 	private InventoryItem inventoryItem;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "concierge_service_id")
+	private ConciergeService conciergeService;
+
 	@Column(name = "inventory_quantity")
 	private Integer inventoryQuantity;
 

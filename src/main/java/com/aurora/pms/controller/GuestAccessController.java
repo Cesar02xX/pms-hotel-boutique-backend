@@ -35,6 +35,7 @@ import com.aurora.pms.dto.response.RoomServiceOrderResponse;
 import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.dto.response.GuestHousekeepingItemResponse;
+import com.aurora.pms.dto.response.ConciergeServiceResponse;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.security.GuestPrincipal;
 import com.aurora.pms.service.GuestAccessService;
@@ -42,6 +43,7 @@ import com.aurora.pms.service.AdminCatalogService;
 import com.aurora.pms.service.GuestNotificationService;
 import com.aurora.pms.service.RoomServiceOrderService;
 import com.aurora.pms.service.InventoryService;
+import com.aurora.pms.service.ConciergeCatalogService;
 
 import jakarta.validation.Valid;
 
@@ -54,19 +56,22 @@ public class GuestAccessController {
 	private final GuestNotificationService notificationService;
 	private final RoomServiceOrderService roomServiceOrderService;
 	private final InventoryService inventoryService;
+	private final ConciergeCatalogService conciergeCatalogService;
 
 	public GuestAccessController(
 			GuestAccessService guestAccessService,
 			AdminCatalogService adminCatalogService,
 			GuestNotificationService notificationService,
 			RoomServiceOrderService roomServiceOrderService,
-			InventoryService inventoryService
+			InventoryService inventoryService,
+			ConciergeCatalogService conciergeCatalogService
 	) {
 		this.guestAccessService = guestAccessService;
 		this.adminCatalogService = adminCatalogService;
 		this.notificationService = notificationService;
 		this.roomServiceOrderService = roomServiceOrderService;
 		this.inventoryService = inventoryService;
+		this.conciergeCatalogService = conciergeCatalogService;
 	}
 
 	@PostMapping("/auth/login")
@@ -213,6 +218,11 @@ public class GuestAccessController {
 	) {
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(guestAccessService.createConciergeRequest(guest.bookingId(), request));
+	}
+
+	@GetMapping("/concierge/services")
+	public ResponseEntity<List<ConciergeServiceResponse>> conciergeServices() {
+		return ResponseEntity.ok(conciergeCatalogService.findAll(true));
 	}
 
 	@GetMapping("/concierge/requests")

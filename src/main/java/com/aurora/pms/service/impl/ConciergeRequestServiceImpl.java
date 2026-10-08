@@ -19,12 +19,14 @@ import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.exception.ResourceNotFoundException;
 import com.aurora.pms.mapper.ConciergeRequestMapper;
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.ConciergeService;
 import com.aurora.pms.model.ServiceRequest;
 import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.BookingStatus;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
 import com.aurora.pms.repository.BookingRepository;
+import com.aurora.pms.repository.ConciergeServiceRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.service.ConciergeRequestService;
@@ -65,6 +67,7 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 	private final ConciergeRequestMapper conciergeRequestMapper;
 	private final Clock clock;
 	private final GuestNotificationService guestNotificationService;
+	private final ConciergeServiceRepository conciergeServiceRepository;
 
 	public ConciergeRequestServiceImpl(
 			ServiceRequestRepository serviceRequestRepository,
@@ -72,7 +75,8 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 			UserRepository userRepository,
 			ConciergeRequestMapper conciergeRequestMapper,
 			Clock clock,
-			GuestNotificationService guestNotificationService
+			GuestNotificationService guestNotificationService,
+			ConciergeServiceRepository conciergeServiceRepository
 	) {
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.bookingRepository = bookingRepository;
@@ -80,6 +84,7 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 		this.conciergeRequestMapper = conciergeRequestMapper;
 		this.clock = clock;
 		this.guestNotificationService = guestNotificationService;
+		this.conciergeServiceRepository = conciergeServiceRepository;
 	}
 
 	@Override
@@ -107,8 +112,18 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 			throw new BadRequestException(
 					"Cannot create concierge requests for a booking with status " + booking.getStatus());
 		}
+		ConciergeService selectedService = null;
+		if (request.serviceId() != null) {
+			selectedService = conciergeServiceRepository.findById(request.serviceId())
+					.filter(service -> Boolean.TRUE.equals(service.getActive()))
+					.orElseThrow(() -> new BadRequestException("Selected concierge service is unavailable"));
+		}
 
 		ServiceRequest serviceRequest = conciergeRequestMapper.toEntity(request, booking);
+		if (selectedService != null) {
+			serviceRequest.setConciergeService(selectedService);
+			serviceRequest.setDescription(selectedService.getName());
+		}
 		OffsetDateTime now = OffsetDateTime.now(clock);
 		serviceRequest.setType(TYPE);
 		serviceRequest.setStatus(ServiceRequestStatus.pending);

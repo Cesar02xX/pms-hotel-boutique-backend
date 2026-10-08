@@ -385,10 +385,14 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	@Override
 	public ConciergeRequestResponse createConciergeRequest(UUID bookingId, CreateGuestServiceRequest request) {
 		requireActiveStay(bookingId);
+		if (request.serviceId() == null) {
+			throw new com.aurora.pms.exception.BadRequestException("Select an available concierge service");
+		}
 		return conciergeRequestService.create(new CreateConciergeRequestRequest(
 				bookingId,
 				request.description(),
-				request.notes()
+				request.notes(),
+				request.serviceId()
 		));
 	}
 
