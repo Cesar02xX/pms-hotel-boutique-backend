@@ -245,7 +245,8 @@ public class SecurityConfig {
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.SERVICE_REQUESTS_READ,
 								SecurityPermissions.HOUSEKEEPING_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/service-requests/**")
-						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.SERVICE_REQUESTS_WRITE)
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.SERVICE_REQUESTS_WRITE,
+								SecurityPermissions.HOUSEKEEPING_WRITE)
 						.anyRequest().authenticated())
 				.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
