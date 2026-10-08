@@ -30,12 +30,17 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
 import com.aurora.pms.model.Booking;
+import com.aurora.pms.model.Role;
 import com.aurora.pms.model.Room;
 import com.aurora.pms.model.RoomType;
 import com.aurora.pms.model.ServiceRequest;
+import com.aurora.pms.model.User;
 import com.aurora.pms.model.enums.ServiceRequestStatus;
 import com.aurora.pms.model.enums.ServiceRequestType;
+import com.aurora.pms.model.enums.UserStatus;
+import com.aurora.pms.repository.RoleRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
+import com.aurora.pms.repository.UserRepository;
 import com.aurora.pms.security.SecurityPermissions;
 import com.jayway.jsonpath.JsonPath;
 
@@ -46,11 +51,21 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 	@Autowired
 	private ServiceRequestRepository serviceRequestRepository;
 
+	@Autowired
+	private UserRepository userRepository;
+
+	@Autowired
+	private RoleRepository roleRepository;
+
 	private final List<UUID> requestIds = new ArrayList<>();
+	private final List<UUID> userIds = new ArrayList<>();
+	private final List<UUID> roleIds = new ArrayList<>();
 
 	@AfterEach
 	void cleanUpServiceRequests() {
 		serviceRequestRepository.deleteAllById(requestIds);
+		userRepository.deleteAllById(userIds);
+		roleRepository.deleteAllById(roleIds);
 	}
 
 	@Test
@@ -231,6 +246,7 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 	void statusFlowReachesCompleted() throws Exception {
 		Booking booking = createServiceBooking();
 		String id = createRequest(booking, "maintenance", "Fix shower");
+		User actor = createStaffUser("executor");
 
 		changeStatus(id, "accepted");
 		mockMvc.perform(post(BASE_PATH + "/{id}/status", id)
@@ -243,7 +259,7 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$.status").value("in_progress"))
 				.andExpect(jsonPath("$.startedAt").exists());
 		mockMvc.perform(post(BASE_PATH + "/{id}/status", id)
-						.with(staffUser())
+						.with(housekeepingActor(actor))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
 								{"status": "completed", "notes": "Done"}
@@ -251,10 +267,52 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("completed"))
 				.andExpect(jsonPath("$.completedAt").exists())
+				.andExpect(jsonPath("$.completedByUserEmail").value(actor.getEmail()))
 				.andExpect(jsonPath("$.notes").value("Tech started\nDone"));
 
 		assertThat(serviceRequestRepository.findById(UUID.fromString(id))).get()
-				.extracting(ServiceRequest::getStatus).isEqualTo(ServiceRequestStatus.completed);
+				.satisfies(request -> {
+					assertThat(request.getStatus()).isEqualTo(ServiceRequestStatus.completed);
+					assertThat(request.getCompletedByUser().getId()).isEqualTo(actor.getId());
+				});
+	}
+
+	@Test
+	void maintenanceCompletionRecordsExecutorSeparatelyFromAssignedResponsible() throws Exception {
+		Booking booking = createServiceBooking();
+		String id = createRequest(booking, "maintenance", "Fix shower");
+		User assigned = createStaffUser("assigned");
+		User actor = createStaffUser("executor");
+
+		mockMvc.perform(post(BASE_PATH + "/{id}/status", id)
+						.with(staffUser())
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted", "responsibleUserId": "%s"}
+								""".formatted(assigned.getId())))
+				.andExpect(status().isOk());
+		mockMvc.perform(post(BASE_PATH + "/{id}/status", id)
+						.with(housekeepingActor(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "in_progress"}
+								"""))
+				.andExpect(status().isOk());
+		mockMvc.perform(post(BASE_PATH + "/{id}/status", id)
+						.with(housekeepingActor(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "completed"}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.responsibleUserEmail").value(assigned.getEmail()))
+				.andExpect(jsonPath("$.completedByUserEmail").value(actor.getEmail()));
+
+		assertThat(serviceRequestRepository.findById(UUID.fromString(id))).get()
+				.satisfies(request -> {
+					assertThat(request.getResponsibleUser().getId()).isEqualTo(assigned.getId());
+					assertThat(request.getCompletedByUser().getId()).isEqualTo(actor.getId());
+				});
 	}
 
 	@Test
@@ -321,6 +379,35 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 	private Booking createServiceBooking() {
 		RoomType roomType = createRoomType();
 		return createBooking(createGuest(), roomType, createRoom(roomType), createRate(roomType));
+	}
+
+	private User createStaffUser(String suffix) {
+		Role role = new Role();
+		role.setCode("housekeeping_test_" + uniqueSuffix());
+		role.setName("Housekeeping Test");
+		role.setCreatedAt(now());
+		role.setUpdatedAt(now());
+		role = roleRepository.save(role);
+		roleIds.add(role.getId());
+
+		User actor = new User();
+		actor.setFirstName("Housekeeping");
+		actor.setLastName(suffix);
+		actor.setEmail("housekeeping.%s.%s@aurora.test".formatted(suffix, uniqueSuffix()));
+		actor.setPasswordHash("not-used");
+		actor.setRole(role);
+		actor.setStatus(UserStatus.active);
+		actor.setCreatedAt(now());
+		actor.setUpdatedAt(now());
+		actor = userRepository.save(actor);
+		userIds.add(actor.getId());
+		return actor;
+	}
+
+	private static RequestPostProcessor housekeepingActor(User actor) {
+		return user(actor.getEmail()).authorities(
+				new SimpleGrantedAuthority("ROLE_HOUSEKEEPING"),
+				new SimpleGrantedAuthority(SecurityPermissions.SERVICE_REQUESTS_WRITE));
 	}
 
 	private String createRequest(Booking booking, String type, String description) throws Exception {

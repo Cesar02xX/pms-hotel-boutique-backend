@@ -13,6 +13,7 @@ public class ConciergeRequestMapper {
 
 	public ConciergeRequestResponse toResponse(ServiceRequest request) {
 		User responsible = request.getResponsibleUser();
+		User completedBy = request.getCompletedByUser();
 		return new ConciergeRequestResponse(
 				request.getId(),
 				request.getBooking().getId(),
@@ -32,7 +33,8 @@ public class ConciergeRequestMapper {
 				request.getCharge() != null ? request.getCharge().getId() : null,
 				request.getRequestedAt(),
 				request.getCreatedAt(),
-				request.getUpdatedAt()
+				request.getUpdatedAt(),
+				completedBy != null ? completedBy.getEmail() : null
 		);
 	}
 

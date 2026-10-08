@@ -14,6 +14,7 @@ public class ServiceRequestMapper {
 
 	public ServiceRequestResponse toResponse(ServiceRequest request) {
 		User responsible = request.getResponsibleUser();
+		User completedBy = request.getCompletedByUser();
 		return new ServiceRequestResponse(
 				request.getId(),
 				request.getBooking() != null ? request.getBooking().getId() : null,
@@ -34,7 +35,8 @@ public class ServiceRequestMapper {
 				request.getStartedAt(),
 				request.getCompletedAt(),
 				request.getCreatedAt(),
-				request.getUpdatedAt()
+				request.getUpdatedAt(),
+				completedBy != null ? completedBy.getEmail() : null
 		);
 	}
 

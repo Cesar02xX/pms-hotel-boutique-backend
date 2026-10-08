@@ -95,7 +95,8 @@ public class ConciergeRequestController {
 			description = "Allowed: pending -> accepted | rejected | cancelled, accepted -> in_progress | cancelled, "
 					+ "in_progress -> completed | cancelled. completed, rejected and cancelled are terminal. "
 					+ "Optional notes are appended to the existing notes. Without responsibleUserId, accepting, "
-					+ "starting or completing an unassigned request assigns the authenticated user.")
+					+ "starting or completing an unassigned request assigns the authenticated user. Completion records "
+					+ "completedByUserEmail separately from the responsible user.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "200", description = "Status changed"),
 			@ApiResponse(responseCode = "400", description = "Invalid request or status transition",

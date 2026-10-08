@@ -350,21 +350,37 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	void fullFlowReachesCompletedAndAppendsNotes() throws Exception {
 		Booking booking = createConciergeBooking();
 		String id = createRequest(booking, "Reservar spa", "Pedido en recepción");
+		User assigned = createResponsibleUser();
+		User actor = createResponsibleUser();
 
-		changeStatus(id, "accepted");
-		changeStatus(id, "in_progress");
 		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
-						.with(staffUser())
+						.with(actingAs(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted", "responsibleUserId": "%s"}
+								""".formatted(assigned.getId())))
+				.andExpect(status().isOk());
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(actingAs(actor))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(statusBody("in_progress")))
+				.andExpect(status().isOk());
+		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
+						.with(actingAs(actor))
 						.contentType(MediaType.APPLICATION_JSON)
 						.content("""
 								{"status": "completed", "notes": " Confirmado 15:00 "}
 								"""))
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.status").value("completed"))
+				.andExpect(jsonPath("$.responsibleUserEmail").value(assigned.getEmail()))
+				.andExpect(jsonPath("$.completedByUserEmail").value(actor.getEmail()))
 				.andExpect(jsonPath("$.notes").value("Pedido en recepción\nConfirmado 15:00"));
 
 		ServiceRequest stored = serviceRequestRepository.findById(UUID.fromString(id)).orElseThrow();
 		assertThat(stored.getStatus()).isEqualTo(ServiceRequestStatus.completed);
+		assertThat(stored.getResponsibleUser().getId()).isEqualTo(assigned.getId());
+		assertThat(stored.getCompletedByUser().getId()).isEqualTo(actor.getId());
 		assertThat(stored.getUpdatedAt()).isAfterOrEqualTo(stored.getCreatedAt());
 		assertThat(stored.getCharge()).isNull();
 		assertThat(chargeRepository.findByBookingIdOrderByChargedAtAscCreatedAtAsc(booking.getId())).isEmpty();
@@ -386,12 +402,13 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	@MethodSource("validTransitions")
 	void validTransitionsAreAllowed(List<String> path, String target) throws Exception {
 		String id = createRequest(createConciergeBooking(), "Solicitud");
+		User actor = target.equals("completed") ? createResponsibleUser() : null;
 		for (String step : path) {
 			changeStatus(id, step);
 		}
 
 		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
-						.with(staffUser())
+						.with(actor != null ? actingAs(actor) : staffUser())
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(statusBody(target)))
 				.andExpect(status().isOk())
@@ -668,8 +685,11 @@ class ConciergeRequestControllerTest extends AbstractCatalogApiTest {
 	}
 
 	private void changeStatus(String id, String status) throws Exception {
+		RequestPostProcessor actor = status.equals("completed")
+				? actingAs(createResponsibleUser())
+				: staffUser();
 		mockMvc.perform(post(BASE_PATH + "/{requestId}/status", id)
-						.with(staffUser())
+						.with(actor)
 						.contentType(MediaType.APPLICATION_JSON)
 						.content(statusBody(status)))
 				.andExpect(status().isOk());
