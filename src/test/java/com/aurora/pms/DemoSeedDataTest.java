@@ -83,6 +83,21 @@ class DemoSeedDataTest {
 				""", Integer.class);
 		assertThat(roomsAndRates).isGreaterThanOrEqualTo(4);
 
+		Integer cleanDemoRoomsWithoutCompletedChecklist = jdbcTemplate.queryForObject("""
+				select count(*)
+				from rooms room
+				where room.room_number in ('201', '202')
+				  and room.housekeeping_status in ('clean', 'inspected')
+				  and not exists (
+				      select 1
+				      from housekeeping_checklists checklist
+				      where checklist.room_id = room.id
+				        and checklist.service_request_id is null
+				        and checklist.status = 'completed'
+				  )
+				""", Integer.class);
+		assertThat(cleanDemoRoomsWithoutCompletedChecklist).isZero();
+
 		Integer productsAndInventory = jdbcTemplate.queryForObject("""
 				select count(*)
 				from products p

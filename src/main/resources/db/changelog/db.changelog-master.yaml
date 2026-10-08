@@ -69,3 +69,5 @@ databaseChangeLog:
       file: db/changelog/migrations/033-housekeeping-service-catalog.sql
   - include:
       file: db/changelog/migrations/034-housekeeping-request-checklist-template.sql
+  - include:
+      file: db/changelog/migrations/035-backfill-clean-room-checklists.sql
