@@ -52,6 +52,8 @@ databaseChangeLog:
   - include:
       file: db/changelog/migrations/026-housekeeping-turnover-checklists.sql
   - include:
+      file: db/changelog/migrations/029-extend-demo-guest-stays.sql
+  - include:
       file: db/changelog/migrations/027-media-images.sql
   - include:
       file: db/changelog/migrations/028-navigation-permissions.sql
