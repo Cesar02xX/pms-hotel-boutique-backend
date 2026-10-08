@@ -8,6 +8,7 @@ import com.aurora.pms.dto.request.CreateGuestHousekeepingItemRequest;
 import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
+import com.aurora.pms.dto.request.GuestRegistrationRequest;
 import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.GuestLinkResponse;
@@ -21,6 +22,8 @@ import com.aurora.pms.model.enums.ServiceRequestStatus;
 public interface GuestAccessService {
 
 	GuestLoginResponse login(GuestLoginRequest request);
+
+	GuestLinkResponse register(GuestRegistrationRequest request);
 
 	GuestLinkResponse link(String code);
 

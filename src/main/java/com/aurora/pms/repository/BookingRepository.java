@@ -23,6 +23,14 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
 	Optional<Booking> findByGuestLinkCode(String guestLinkCode);
 
+	Optional<Booking> findByGuestLinkCodeIgnoreCase(String guestLinkCode);
+
+	Optional<Booking> findByConfirmationCode(String confirmationCode);
+
+	Optional<Booking> findByConfirmationCodeIgnoreCase(String confirmationCode);
+
+	Optional<Booking> findByGuestLinkCodeOrConfirmationCode(String guestLinkCode, String confirmationCode);
+
 	java.util.List<Booking> findByGuestIdAndStatusOrderByCheckInDesc(UUID guestId, BookingStatus status);
 
 	java.util.List<Booking> findByGuestIdOrderByCheckInDesc(UUID guestId);

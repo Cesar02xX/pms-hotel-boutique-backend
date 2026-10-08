@@ -26,6 +26,7 @@ import com.aurora.pms.dto.request.CreateGuestHousekeepingItemRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.CreateRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
+import com.aurora.pms.dto.request.GuestRegistrationRequest;
 import com.aurora.pms.dto.request.UpdateConciergeRequestStatusRequest;
 import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
@@ -72,7 +73,11 @@ import com.aurora.pms.service.impl.InventoryStockLedger;
 @Service
 public class GuestAccessServiceImpl implements GuestAccessService {
 
-	private static final EnumSet<BookingStatus> LINKABLE_STATUSES = EnumSet.of(BookingStatus.checked_in);
+	private static final EnumSet<BookingStatus> PORTAL_ACCESS_STATUSES = EnumSet.of(
+			BookingStatus.pending,
+			BookingStatus.confirmed,
+			BookingStatus.checked_in
+	);
 	private static final ZoneId HOTEL_ZONE = ZoneId.of("America/Guatemala");
 	private static final EnumSet<ServiceRequestStatus> GUEST_CANCELLABLE_REQUESTS =
 			EnumSet.of(ServiceRequestStatus.pending, ServiceRequestStatus.accepted);
@@ -180,18 +185,50 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	}
 
 	@Override
-	@Transactional(readOnly = true)
-	public GuestLinkResponse link(String code) {
-		Booking booking = bookingRepository.findByGuestLinkCode(normalizeCode(code))
-				.orElseThrow(() -> new BadRequestException("Guest link code is invalid"));
-		if (!LINKABLE_STATUSES.contains(booking.getStatus())) {
-			throw new BadRequestException("Guest link code is not usable for booking status " + booking.getStatus());
+	@Transactional
+	public GuestLinkResponse register(GuestRegistrationRequest request) {
+		String email = normalizeEmail(request.email());
+		Booking booking = findPortalBooking(request.code());
+		if (!email.equals(normalizeEmail(booking.getGuest().getEmail()))) {
+			throw new BadRequestException("Email does not match the reservation guest");
 		}
-		LocalDate today = LocalDate.now(HOTEL_ZONE);
-		if (today.isBefore(booking.getCheckIn()) || !today.isBefore(booking.getCheckOut())) {
-			throw new BadRequestException("Guest link code is expired or not yet active");
+		if (guestCredentialRepository.findByGuestId(booking.getGuest().getId()).isPresent()
+				|| guestCredentialRepository.existsByEmailIgnoreCase(email)) {
+			throw new ConflictException("A guest account already exists for this reservation or email");
 		}
 
+		GuestCredential credential = new GuestCredential();
+		credential.setGuest(booking.getGuest());
+		credential.setEmail(email);
+		credential.setPasswordHash(passwordEncoder.encode(request.password()));
+		credential.setActive(true);
+		guestCredentialRepository.save(credential);
+		return guestToken(booking);
+	}
+
+	@Override
+	@Transactional(readOnly = true)
+	public GuestLinkResponse link(String code) {
+		return guestToken(findPortalBooking(code));
+	}
+
+	private Booking findPortalBooking(String code) {
+		String normalizedCode = normalizeCode(code);
+		Booking booking = bookingRepository.findByGuestLinkCodeIgnoreCase(normalizedCode)
+				.or(() -> bookingRepository.findByConfirmationCodeIgnoreCase(normalizedCode))
+				.orElseThrow(() -> new BadRequestException("Reservation code is invalid"));
+		if (!PORTAL_ACCESS_STATUSES.contains(booking.getStatus())) {
+			throw new BadRequestException("Reservation is not available for guest portal access");
+		}
+		LocalDate today = today();
+		if (!today.isBefore(booking.getCheckOut())
+				|| (booking.getStatus() == BookingStatus.checked_in && today.isBefore(booking.getCheckIn()))) {
+			throw new BadRequestException("Reservation code is expired or not yet active");
+		}
+		return booking;
+	}
+
+	private GuestLinkResponse guestToken(Booking booking) {
 		GuestPrincipal principal = new GuestPrincipal(booking.getId(), booking.getGuest().getId(), booking.getGuestLinkCode());
 		return new GuestLinkResponse(jwtService.generateGuestAccessToken(principal), "Bearer",
 				jwtService.getAccessExpirationSeconds());
@@ -222,7 +259,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	@Override
 	public RoomServiceOrderResponse createRoomServiceOrder(UUID bookingId, CreateGuestRoomServiceOrderRequest request) {
-		getOwnBooking(bookingId);
+		requireActiveStay(bookingId);
 		return roomServiceOrderService.createOrder(new CreateRoomServiceOrderRequest(bookingId, request.notes(), request.items()));
 	}
 
@@ -241,13 +278,14 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	@Override
 	public RoomServiceOrderResponse cancelRoomServiceOrder(UUID bookingId, UUID orderId) {
+		requireActiveStay(bookingId);
 		findRoomServiceOrder(bookingId, orderId);
 		return roomServiceOrderService.updateStatus(orderId, OrderStatus.cancelled, null);
 	}
 
 	@Override
 	public StayoverCleaningResponse createHousekeepingRequest(UUID bookingId, CreateGuestServiceRequest request) {
-		Booking booking = getOwnBooking(bookingId);
+		Booking booking = requireActiveStay(bookingId);
 		if (booking.getRoom() == null) {
 			throw new BadRequestException("Booking has no assigned room");
 		}
@@ -309,6 +347,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	@Override
 	@Transactional
 	public StayoverCleaningResponse cancelHousekeepingRequest(UUID bookingId, UUID requestId) {
+		requireActiveStay(bookingId);
 		ServiceRequest request = serviceRequestRepository.findByIdAndTypeForUpdate(requestId, ServiceRequestType.housekeeping)
 				.orElseThrow(() -> new ResourceNotFoundException("Stayover cleaning not found: " + requestId));
 		ensureOwn(bookingId, request.getBooking().getId());
@@ -345,7 +384,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	@Override
 	public ConciergeRequestResponse createConciergeRequest(UUID bookingId, CreateGuestServiceRequest request) {
-		getOwnBooking(bookingId);
+		requireActiveStay(bookingId);
 		return conciergeRequestService.create(new CreateConciergeRequestRequest(
 				bookingId,
 				request.description(),
@@ -368,6 +407,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 
 	@Override
 	public ConciergeRequestResponse cancelConciergeRequest(UUID bookingId, UUID requestId) {
+		requireActiveStay(bookingId);
 		findConciergeRequest(bookingId, requestId);
 		return conciergeRequestService.updateStatus(requestId,
 				new UpdateConciergeRequestStatusRequest(ServiceRequestStatus.cancelled, null, null));
@@ -493,14 +533,21 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 			if (!normalizeCode(guest.linkCode()).equals(normalizeCode(booking.getGuestLinkCode()))) {
 				throw new AccessDeniedException("Guest cannot access this resource");
 			}
-			if (!LINKABLE_STATUSES.contains(booking.getStatus())) {
-				throw new AccessDeniedException("Guest stay is not active");
-			}
-			LocalDate today = LocalDate.now(HOTEL_ZONE);
-			if (today.isBefore(booking.getCheckIn()) || !today.isBefore(booking.getCheckOut())) {
-				throw new AccessDeniedException("Guest stay is not active");
+			if (!PORTAL_ACCESS_STATUSES.contains(booking.getStatus()) || !today().isBefore(booking.getCheckOut())) {
+				throw new AccessDeniedException("Guest reservation is not available");
 			}
 		});
+		return booking;
+	}
+
+	private Booking requireActiveStay(UUID bookingId) {
+		Booking booking = getOwnBooking(bookingId);
+		LocalDate today = today();
+		if (booking.getStatus() != BookingStatus.checked_in
+				|| today.isBefore(booking.getCheckIn())
+				|| !today.isBefore(booking.getCheckOut())) {
+			throw new AccessDeniedException("Guest stay is not active");
+		}
 		return booking;
 	}
 
