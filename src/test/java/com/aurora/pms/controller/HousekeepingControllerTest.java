@@ -3,6 +3,7 @@ package com.aurora.pms.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
@@ -140,6 +141,24 @@ class HousekeepingControllerTest extends AbstractCatalogApiTest {
 				.andExpect(jsonPath("$[*].id", hasItem(room.getId().toString())))
 				.andExpect(jsonPath("$[?(@.id == '%s')].housekeepingStatus".formatted(room.getId()))
 						.value(hasItem("dirty")));
+	}
+
+	@Test
+	void housekeepingCanReadDefaultGuestCleaningChecklist() throws Exception {
+		mockMvc.perform(get("/api/v1/housekeeping/checklist-template").with(housekeepingUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.name").value("Limpieza de habitación"))
+				.andExpect(jsonPath("$.items", hasSize(7)))
+				.andExpect(jsonPath("$.items[0]").value("Retirar basura y ropa usada que corresponda"));
+	}
+
+	@Test
+	void housekeepingCannotEditDefaultGuestCleaningChecklist() throws Exception {
+		mockMvc.perform(put("/api/v1/housekeeping/checklist-template")
+					.with(housekeepingUser())
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"items\":[\"Solo administración puede cambiarla\"]}"))
+				.andExpect(status().isForbidden());
 	}
 
 	@ParameterizedTest
