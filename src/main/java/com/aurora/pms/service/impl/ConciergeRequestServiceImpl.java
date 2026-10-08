@@ -170,7 +170,22 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 			throw new BadRequestException("Invalid status transition from " + current + " to " + target);
 		}
 
+		OffsetDateTime now = OffsetDateTime.now(clock);
 		serviceRequest.setStatus(target);
+		if (target == ServiceRequestStatus.in_progress && serviceRequest.getStartedAt() == null) {
+			serviceRequest.setStartedAt(now);
+		}
+		if (target == ServiceRequestStatus.completed) {
+			if (serviceRequest.getCompletedAt() == null) {
+				serviceRequest.setCompletedAt(now);
+			}
+			if (actorEmail == null) {
+				throw new BadRequestException("Authenticated user is required to complete a concierge request");
+			}
+			User completedBy = userRepository.findByEmail(actorEmail)
+					.orElseThrow(() -> new BadRequestException("Authenticated user was not found"));
+			serviceRequest.setCompletedByUser(completedBy);
+		}
 		if (request.responsibleUserId() != null) {
 			serviceRequest.setResponsibleUser(findResponsibleUser(request.responsibleUserId()));
 		} else if (serviceRequest.getResponsibleUser() == null
@@ -179,7 +194,7 @@ public class ConciergeRequestServiceImpl implements ConciergeRequestService {
 			userRepository.findByEmail(actorEmail).ifPresent(serviceRequest::setResponsibleUser);
 		}
 		serviceRequest.setNotes(appendNotes(serviceRequest.getNotes(), trimToNull(request.notes())));
-		serviceRequest.setUpdatedAt(OffsetDateTime.now(clock));
+		serviceRequest.setUpdatedAt(now);
 
 		serviceRequest = serviceRequestRepository.save(serviceRequest);
 		guestNotificationService.createIfAbsent(

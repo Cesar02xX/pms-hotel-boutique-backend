@@ -161,6 +161,14 @@ public class ServiceRequestServiceImpl implements ServiceRequestService {
 		if (target == ServiceRequestStatus.completed && serviceRequest.getCompletedAt() == null) {
 			serviceRequest.setCompletedAt(now);
 		}
+		if (target == ServiceRequestStatus.completed) {
+			if (actorEmail == null) {
+				throw new BadRequestException("Authenticated user is required to complete a service request");
+			}
+			User completedBy = userRepository.findByEmail(actorEmail)
+					.orElseThrow(() -> new BadRequestException("Authenticated user was not found"));
+			serviceRequest.setCompletedByUser(completedBy);
+		}
 		if (request.responsibleUserId() != null) {
 			serviceRequest.setResponsibleUser(findResponsibleUser(request.responsibleUserId()));
 		} else if (serviceRequest.getResponsibleUser() == null

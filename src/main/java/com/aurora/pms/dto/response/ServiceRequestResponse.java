@@ -24,6 +24,7 @@ public record ServiceRequestResponse(
 		OffsetDateTime startedAt,
 		OffsetDateTime completedAt,
 		OffsetDateTime createdAt,
-		OffsetDateTime updatedAt
+		OffsetDateTime updatedAt,
+		String completedByUserEmail
 ) {
 }
