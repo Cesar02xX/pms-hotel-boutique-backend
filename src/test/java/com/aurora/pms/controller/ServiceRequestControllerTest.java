@@ -243,6 +243,21 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void housekeepingWritePermissionCanUpdateMaintenanceRequest() throws Exception {
+		UUID maintenance = persistRequest(
+				createServiceBooking(), ServiceRequestType.maintenance, "Review air conditioning");
+
+		mockMvc.perform(post(BASE_PATH + "/{id}/status", maintenance)
+						.with(roleUser("ROLE_HOUSEKEEPING", SecurityPermissions.HOUSEKEEPING_WRITE))
+						.contentType(MediaType.APPLICATION_JSON)
+						.content("""
+								{"status": "accepted"}
+								"""))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status").value("accepted"));
+	}
+
+	@Test
 	void roomServiceCannotUseServiceRequestsEvenWithPermission() throws Exception {
 		mockMvc.perform(get(BASE_PATH)
 						.with(roleUser("ROLE_ROOM_SERVICE", SecurityPermissions.SERVICE_REQUESTS_READ)))
