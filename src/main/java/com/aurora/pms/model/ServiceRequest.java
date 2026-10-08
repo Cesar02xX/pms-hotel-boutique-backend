@@ -52,6 +52,10 @@ public class ServiceRequest {
 	@JoinColumn(name = "concierge_service_id")
 	private ConciergeService conciergeService;
 
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "housekeeping_service_id")
+	private HousekeepingServiceOption housekeepingService;
+
 	@Column(name = "inventory_quantity")
 	private Integer inventoryQuantity;
 

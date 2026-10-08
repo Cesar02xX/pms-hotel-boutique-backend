@@ -42,6 +42,7 @@ import com.aurora.pms.mapper.BookingMapper;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.GuestAccount;
 import com.aurora.pms.model.GuestCredential;
+import com.aurora.pms.model.HousekeepingServiceOption;
 import com.aurora.pms.model.InventoryItem;
 import com.aurora.pms.model.InventoryMovement;
 import com.aurora.pms.model.Rate;
@@ -58,6 +59,7 @@ import com.aurora.pms.repository.BookingRepository;
 import com.aurora.pms.repository.GuestAccountRepository;
 import com.aurora.pms.repository.GuestCredentialRepository;
 import com.aurora.pms.repository.InventoryItemRepository;
+import com.aurora.pms.repository.HousekeepingServiceOptionRepository;
 import com.aurora.pms.repository.RoomTypeRepository;
 import com.aurora.pms.repository.ServiceRequestRepository;
 import com.aurora.pms.security.GuestPrincipal;
@@ -89,6 +91,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	private final GuestAccountRepository guestAccountRepository;
 	private final GuestCredentialRepository guestCredentialRepository;
 	private final InventoryItemRepository inventoryItemRepository;
+	private final HousekeepingServiceOptionRepository housekeepingServiceOptionRepository;
 	private final InventoryStockLedger stockLedger;
 	private final ServiceRequestRepository serviceRequestRepository;
 	private final RoomServiceOrderService roomServiceOrderService;
@@ -109,6 +112,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 			GuestAccountRepository guestAccountRepository,
 			GuestCredentialRepository guestCredentialRepository,
 			InventoryItemRepository inventoryItemRepository,
+			HousekeepingServiceOptionRepository housekeepingServiceOptionRepository,
 			InventoryStockLedger stockLedger,
 			ServiceRequestRepository serviceRequestRepository,
 			RoomServiceOrderService roomServiceOrderService,
@@ -128,6 +132,7 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 		this.guestAccountRepository = guestAccountRepository;
 		this.guestCredentialRepository = guestCredentialRepository;
 		this.inventoryItemRepository = inventoryItemRepository;
+		this.housekeepingServiceOptionRepository = housekeepingServiceOptionRepository;
 		this.stockLedger = stockLedger;
 		this.serviceRequestRepository = serviceRequestRepository;
 		this.roomServiceOrderService = roomServiceOrderService;
@@ -284,17 +289,33 @@ public class GuestAccessServiceImpl implements GuestAccessService {
 	}
 
 	@Override
+	@Transactional
 	public StayoverCleaningResponse createHousekeepingRequest(UUID bookingId, CreateGuestServiceRequest request) {
 		Booking booking = requireActiveStay(bookingId);
 		if (booking.getRoom() == null) {
 			throw new BadRequestException("Booking has no assigned room");
 		}
-		return housekeepingService.createStayoverCleaning(
+		String description = request.description();
+		HousekeepingServiceOption selectedService = null;
+		if (request.serviceId() != null) {
+			selectedService = housekeepingServiceOptionRepository.findById(request.serviceId())
+					.filter(service -> Boolean.TRUE.equals(service.getActive()))
+					.orElseThrow(() -> new BadRequestException("Selected housekeeping service is unavailable"));
+			description = selectedService.getName();
+		}
+		StayoverCleaningResponse response = housekeepingService.createStayoverCleaning(
 				booking.getRoom().getId(),
 				bookingId,
-				request.description(),
+				description,
 				null
 		);
+		if (selectedService != null) {
+			ServiceRequest serviceRequest = serviceRequestRepository.findByIdForUpdate(response.id())
+					.orElseThrow(() -> new ResourceNotFoundException("Housekeeping request not found: " + response.id()));
+			serviceRequest.setHousekeepingService(selectedService);
+			serviceRequestRepository.save(serviceRequest);
+		}
+		return response;
 	}
 
 	@Override

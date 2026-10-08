@@ -36,6 +36,7 @@ import com.aurora.pms.dto.response.RoomServiceProductResponse;
 import com.aurora.pms.dto.response.StayoverCleaningResponse;
 import com.aurora.pms.dto.response.GuestHousekeepingItemResponse;
 import com.aurora.pms.dto.response.ConciergeServiceResponse;
+import com.aurora.pms.dto.response.HousekeepingServiceOptionResponse;
 import com.aurora.pms.model.enums.ProductCategory;
 import com.aurora.pms.security.GuestPrincipal;
 import com.aurora.pms.service.GuestAccessService;
@@ -44,6 +45,7 @@ import com.aurora.pms.service.GuestNotificationService;
 import com.aurora.pms.service.RoomServiceOrderService;
 import com.aurora.pms.service.InventoryService;
 import com.aurora.pms.service.ConciergeCatalogService;
+import com.aurora.pms.service.HousekeepingCatalogService;
 
 import jakarta.validation.Valid;
 
@@ -57,6 +59,7 @@ public class GuestAccessController {
 	private final RoomServiceOrderService roomServiceOrderService;
 	private final InventoryService inventoryService;
 	private final ConciergeCatalogService conciergeCatalogService;
+	private final HousekeepingCatalogService housekeepingCatalogService;
 
 	public GuestAccessController(
 			GuestAccessService guestAccessService,
@@ -64,7 +67,8 @@ public class GuestAccessController {
 			GuestNotificationService notificationService,
 			RoomServiceOrderService roomServiceOrderService,
 			InventoryService inventoryService,
-			ConciergeCatalogService conciergeCatalogService
+			ConciergeCatalogService conciergeCatalogService,
+			HousekeepingCatalogService housekeepingCatalogService
 	) {
 		this.guestAccessService = guestAccessService;
 		this.adminCatalogService = adminCatalogService;
@@ -72,6 +76,7 @@ public class GuestAccessController {
 		this.roomServiceOrderService = roomServiceOrderService;
 		this.inventoryService = inventoryService;
 		this.conciergeCatalogService = conciergeCatalogService;
+		this.housekeepingCatalogService = housekeepingCatalogService;
 	}
 
 	@PostMapping("/auth/login")
@@ -218,6 +223,11 @@ public class GuestAccessController {
 	) {
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(guestAccessService.createConciergeRequest(guest.bookingId(), request));
+	}
+
+	@GetMapping("/housekeeping/services")
+	public ResponseEntity<List<HousekeepingServiceOptionResponse>> housekeepingServices() {
+		return ResponseEntity.ok(housekeepingCatalogService.findAll(true));
 	}
 
 	@GetMapping("/concierge/services")
