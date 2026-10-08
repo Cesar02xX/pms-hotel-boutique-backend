@@ -237,8 +237,9 @@ public class SecurityConfig {
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.CONCIERGE_WRITE)
 						.requestMatchers(HttpMethod.PUT, "/api/v1/concierge/requests/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.CONCIERGE_WRITE)
-						.requestMatchers(HttpMethod.GET, "/api/v1/service-requests/**")
-						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.SERVICE_REQUESTS_READ)
+						.requestMatchers(HttpMethod.GET, "/api/v1/service-requests", "/api/v1/service-requests/**")
+						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.SERVICE_REQUESTS_READ,
+								SecurityPermissions.HOUSEKEEPING_READ)
 						.requestMatchers(HttpMethod.POST, "/api/v1/service-requests/**")
 						.hasAnyAuthority(ADMIN_AUTHORITY, SecurityPermissions.SERVICE_REQUESTS_WRITE)
 						.anyRequest().authenticated())

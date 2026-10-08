@@ -104,6 +104,14 @@ class ServiceRequestControllerTest extends AbstractCatalogApiTest {
 	}
 
 	@Test
+	void housekeepingReadCanListOperationalRequests() throws Exception {
+		mockMvc.perform(get(BASE_PATH).with(user("housekeeping.reader@aurora.test")
+					.authorities(new SimpleGrantedAuthority("ROLE_HOUSEKEEPING"),
+							new SimpleGrantedAuthority(SecurityPermissions.HOUSEKEEPING_READ))))
+				.andExpect(status().isOk());
+	}
+
+	@Test
 	void createOtherRequestWithBookingUsesBookingGuest() throws Exception {
 		Booking booking = createServiceBooking();
 
