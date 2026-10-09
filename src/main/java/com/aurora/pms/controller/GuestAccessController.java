@@ -20,6 +20,7 @@ import com.aurora.pms.dto.request.CreateGuestRoomServiceOrderRequest;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLinkRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
+import com.aurora.pms.dto.request.GuestRegistrationRequest;
 import com.aurora.pms.dto.response.BookingResponse;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
 import com.aurora.pms.dto.response.AmenityResponse;
@@ -69,9 +70,15 @@ public class GuestAccessController {
 		return ResponseEntity.ok(guestAccessService.login(request));
 	}
 
-	@Deprecated
+	@PostMapping("/auth/register")
+	@Operation(summary = "Create guest credentials after verifying a reservation code")
+	@SecurityRequirements
+	public ResponseEntity<GuestLinkResponse> register(@Valid @RequestBody GuestRegistrationRequest request) {
+		return ResponseEntity.status(HttpStatus.CREATED).body(guestAccessService.register(request));
+	}
+
 	@PostMapping("/auth/link")
-	@Operation(summary = "Login by link code (deprecated: use POST /api/v1/guest/auth/login)", deprecated = true)
+	@Operation(summary = "Authenticate a guest with a reservation confirmation or temporary access code")
 	@SecurityRequirements
 	public ResponseEntity<GuestLinkResponse> link(@Valid @RequestBody GuestLinkRequest request) {
 		return ResponseEntity.ok(guestAccessService.link(request.code()));

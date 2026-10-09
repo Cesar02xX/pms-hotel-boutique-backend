@@ -19,6 +19,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.time.OffsetDateTime;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -43,6 +44,7 @@ import com.aurora.pms.dto.request.CreateInventoryMovementRequest;
 import com.aurora.pms.dto.response.InventoryMovementResponse;
 import com.aurora.pms.exception.BadRequestException;
 import com.aurora.pms.model.InventoryItem;
+import com.aurora.pms.model.InventoryMovement;
 import com.aurora.pms.model.Product;
 import com.aurora.pms.model.Role;
 import com.aurora.pms.model.User;
@@ -314,6 +316,24 @@ class InventoryControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$", hasSize(1)))
 				.andExpect(jsonPath("$[0].id").value(own));
+	}
+
+	@Test
+	void listMovementsSupportsHousekeepingReservations() throws Exception {
+		InventoryItem item = createItem("Kit reservado", 4, 0, true);
+		InventoryMovement movement = new InventoryMovement();
+		movement.setInventoryItem(item);
+		movement.setType(InventoryMovementType.out);
+		movement.setReason(InventoryMovementReason.reservation);
+		movement.setQuantity(1);
+		movement.setOccurredAt(OffsetDateTime.now());
+		movement.setCreatedAt(OffsetDateTime.now());
+		inventoryMovementRepository.saveAndFlush(movement);
+
+		mockMvc.perform(get(BASE_PATH + "/{itemId}/movements", item.getId()).with(staffUser()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$", hasSize(1)))
+				.andExpect(jsonPath("$[0].reason").value("reservation"));
 	}
 
 	@ParameterizedTest(name = "{0} + {1}")

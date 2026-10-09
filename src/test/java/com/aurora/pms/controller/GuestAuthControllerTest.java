@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
@@ -24,6 +25,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import com.aurora.pms.dto.request.CreateGuestServiceRequest;
 import com.aurora.pms.dto.request.GuestLoginRequest;
 import com.aurora.pms.dto.response.ConciergeRequestResponse;
+import com.aurora.pms.dto.response.GuestLinkResponse;
 import com.aurora.pms.dto.response.GuestLoginResponse;
 import com.aurora.pms.model.Booking;
 import com.aurora.pms.model.Guest;
@@ -38,6 +40,7 @@ class GuestAuthControllerTest extends AbstractCatalogApiTest {
 
 	private static final String LOGIN_PATH = "/api/v1/guest/auth/login";
 	private static final String LINK_PATH = "/api/v1/guest/auth/link";
+	private static final String REGISTER_PATH = "/api/v1/guest/auth/register";
 	private static final String STAY_PATH = "/api/v1/guest/stay";
 	private static final ZoneId HOTEL_ZONE = ZoneId.of("America/Guatemala");
 
@@ -231,6 +234,107 @@ class GuestAuthControllerTest extends AbstractCatalogApiTest {
 				.andExpect(status().isOk())
 				.andExpect(jsonPath("$.accessToken", notNullValue()))
 				.andExpect(jsonPath("$.tokenType", is("Bearer")));
+	}
+
+	@Test
+	void reservationConfirmationCodeAuthenticatesGuestDuringActiveStay() throws Exception {
+		Booking booking = bookingRepository.findByGuestLinkCode("HUESPED-DEMO-UNO").orElseThrow();
+
+		mockMvc.perform(post(LINK_PATH)
+						.contentType(MediaType.APPLICATION_JSON)
+						.content(objectMapper.writeValueAsString(Map.of("code", booking.getConfirmationCode()))))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.accessToken", notNullValue()))
+				.andExpect(jsonPath("$.tokenType", is("Bearer")));
+	}
+
+	@Test
+	void reservationCodeOpensUpcomingBookingButDoesNotAllowStayServicesBeforeCheckIn() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Booking booking = createBooking(guest, roomType, null, null);
+		LocalDate today = LocalDate.now(HOTEL_ZONE);
+		booking.setCheckIn(today.plusDays(7));
+		booking.setCheckOut(today.plusDays(10));
+		booking.setStatus(BookingStatus.pending);
+		booking = bookingRepository.saveAndFlush(booking);
+
+		MvcResult linkResult = mockMvc.perform(post(LINK_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(objectMapper.writeValueAsString(Map.of("code", booking.getConfirmationCode()))))
+			.andReturn();
+		assertThat(linkResult.getResponse().getStatus())
+				.withFailMessage(linkResult.getResponse().getContentAsString())
+				.isEqualTo(200);
+		GuestLinkResponse access = objectMapper.readValue(
+				linkResult.getResponse().getContentAsString(), GuestLinkResponse.class);
+		String authorization = "Bearer " + access.accessToken();
+
+		mockMvc.perform(get(STAY_PATH).header("Authorization", authorization))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.status", is("pending")))
+				.andExpect(jsonPath("$.guestFirstName", is("Test")));
+
+		mockMvc.perform(get("/api/v1/guest/concierge/requests").header("Authorization", authorization))
+				.andExpect(status().isOk());
+
+		mockMvc.perform(post("/api/v1/guest/concierge/requests")
+					.header("Authorization", authorization)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content("{\"description\":\"Taxi\",\"notes\":\"Before check-in\"}"))
+				.andExpect(status().isForbidden());
+	}
+
+	@Test
+	void reservationCodeAndMatchingEmailCreateGuestAccountAndSignIn() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Booking booking = createBooking(guest, roomType, null, null);
+		LocalDate today = LocalDate.now(HOTEL_ZONE);
+		booking.setCheckIn(today.plusDays(3));
+		booking.setCheckOut(today.plusDays(5));
+		booking.setStatus(BookingStatus.confirmed);
+		booking = bookingRepository.saveAndFlush(booking);
+
+		MvcResult result = mockMvc.perform(post(REGISTER_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(objectMapper.writeValueAsString(Map.of(
+							"code", booking.getConfirmationCode(),
+							"email", guest.getEmail().toUpperCase(),
+							"password", "new-password-123"))))
+				.andExpect(status().isCreated())
+				.andExpect(jsonPath("$.accessToken", notNullValue()))
+				.andReturn();
+		GuestLinkResponse response = objectMapper.readValue(result.getResponse().getContentAsString(), GuestLinkResponse.class);
+		mockMvc.perform(get(STAY_PATH).header("Authorization", "Bearer " + response.accessToken()))
+				.andExpect(status().isOk())
+				.andExpect(jsonPath("$.guestFirstName", is("Test")));
+
+		GuestCredential credential = guestCredentialRepository.findByGuestId(guest.getId()).orElseThrow();
+		testCredentialIds.add(credential.getId());
+		assertThat(passwordEncoder.matches("new-password-123", credential.getPasswordHash())).isTrue();
+	}
+
+	@Test
+	void registrationRejectsEmailThatDoesNotMatchReservation() throws Exception {
+		Guest guest = createGuest();
+		RoomType roomType = createRoomType();
+		Booking booking = createBooking(guest, roomType, null, null);
+		LocalDate today = LocalDate.now(HOTEL_ZONE);
+		booking.setCheckIn(today.plusDays(3));
+		booking.setCheckOut(today.plusDays(5));
+		booking.setStatus(BookingStatus.confirmed);
+		booking = bookingRepository.saveAndFlush(booking);
+
+		mockMvc.perform(post(REGISTER_PATH)
+					.contentType(MediaType.APPLICATION_JSON)
+					.content(objectMapper.writeValueAsString(Map.of(
+							"code", booking.getConfirmationCode(),
+							"email", "other.person@aurora.test",
+							"password", "new-password-123"))))
+				.andExpect(status().isBadRequest())
+				.andExpect(jsonPath("$.message", is("Email does not match the reservation guest")));
+		assertThat(guestCredentialRepository.findByGuestId(guest.getId())).isEmpty();
 	}
 
 	private GuestLoginResponse login(String email, String password) throws Exception {

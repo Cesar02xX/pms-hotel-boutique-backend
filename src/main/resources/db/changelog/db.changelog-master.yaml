@@ -51,3 +51,9 @@ databaseChangeLog:
       file: db/changelog/migrations/025-housekeeping-checklists.sql
   - include:
       file: db/changelog/migrations/026-housekeeping-turnover-checklists.sql
+  - include:
+      file: db/changelog/migrations/027-inventory-reservation-reasons.sql
+  - include:
+      file: db/changelog/migrations/028-admin-navigation-permissions.sql
+  - include:
+      file: db/changelog/migrations/029-extend-demo-guest-stays.sql

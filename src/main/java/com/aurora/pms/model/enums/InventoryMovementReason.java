@@ -7,5 +7,7 @@ public enum InventoryMovementReason {
 	sale,
 	shrinkage,
 	physical_count,
-	room_service_return
+	room_service_return,
+	reservation,
+	reservation_release
 }

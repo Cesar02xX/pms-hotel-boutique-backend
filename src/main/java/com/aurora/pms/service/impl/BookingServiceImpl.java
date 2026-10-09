@@ -114,7 +114,7 @@ public class BookingServiceImpl implements BookingService {
 	public BookingResponse create(CreateBookingRequest request) {
 		Guest guest = getGuest(request.guestId());
 		RoomType roomType = getRoomType(request.roomTypeId());
-		Room room = request.roomId() != null ? getRoom(request.roomId()) : null;
+		Room room = request.roomId() != null ? getRoomForUpdate(request.roomId()) : null;
 		Rate rate = request.rateId() != null ? getRate(request.rateId()) : null;
 
 		validateBookingState(roomType, room, rate, request.checkIn(), request.checkOut(), request.adults(),
@@ -218,7 +218,7 @@ public class BookingServiceImpl implements BookingService {
 	@Override
 	@Transactional
 	public BookingResponse update(UUID id, UpdateBookingRequest request) {
-		Booking booking = getBooking(id);
+		Booking booking = getBookingForUpdate(id);
 		validateGeneralUpdateAllowed(booking, request);
 
 		if (request.guestId() != null) {
@@ -228,7 +228,7 @@ public class BookingServiceImpl implements BookingService {
 			booking.setRoomType(getRoomType(request.roomTypeId()));
 		}
 		if (request.roomId() != null) {
-			booking.setRoom(getRoom(request.roomId()));
+			booking.setRoom(getRoomForUpdate(request.roomId()));
 		}
 		if (request.rateId() != null) {
 			booking.setRate(getRate(request.rateId()));
@@ -273,6 +273,11 @@ public class BookingServiceImpl implements BookingService {
 
 	private Room getRoom(UUID id) {
 		return roomRepository.findById(id)
+				.orElseThrow(() -> new BadRequestException("Room not found: " + id));
+	}
+
+	private Room getRoomForUpdate(UUID id) {
+		return roomRepository.findByIdForUpdate(id)
 				.orElseThrow(() -> new BadRequestException("Room not found: " + id));
 	}
 
